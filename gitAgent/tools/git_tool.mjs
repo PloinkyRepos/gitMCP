@@ -9,6 +9,18 @@ function safeParseJson(text) {
   try { return JSON.parse(text); } catch { return null; }
 }
 
+async function readStdinFallback() {
+  if (process.stdin.isTTY) {
+    return '';
+  }
+  process.stdin.setEncoding('utf8');
+  let data = '';
+  for await (const chunk of process.stdin) {
+    data += chunk;
+  }
+  return data;
+}
+
 function normalizeInput(envelope) {
   let current = envelope;
   for (let i = 0; i < 4; i += 1) {
@@ -177,21 +189,31 @@ function normalizeArgs(toolName, args) {
 }
 
 async function main() {
-  const toolName = process.env.TOOL_NAME || process.argv[2];
+  let raw = await fs.readFile(0, 'utf8').catch(() => '');
+  if (!raw) {
+    raw = await readStdinFallback();
+  }
+  const envelope = raw && raw.trim() ? safeParseJson(raw) : null;
+  const args = normalizeInput(envelope || {});
+  const toolName = process.env.TOOL_NAME
+    || process.argv[2]
+    || envelope?.tool
+    || envelope?.params?.name
+    || envelope?.params?.tool_name
+    || envelope?.name
+    || envelope?.tool_name
+    || args?.tool_name
+    || args?.name;
   if (!toolName) {
     process.stdout.write(JSON.stringify(errorResponse('Missing TOOL_NAME.')));
     return;
   }
 
-  const raw = await fs.readFile(0, 'utf8').catch(() => '');
-  const envelope = raw && raw.trim() ? safeParseJson(raw) : null;
-  const args = normalizeInput(envelope || {});
-
   try {
     if (toolName === 'git_commit_message') {
       const payload = normalizeArgs(toolName, args);
       const message = await gitCommitMessage(payload, { workspaceRoot: process.env.WORKSPACE_ROOT || process.env.ASSISTOS_FS_ROOT || '' });
-      process.stdout.write(JSON.stringify(textResponse(message)));
+      process.stdout.write(JSON.stringify(jsonResponse({ ok: true, message: typeof message === 'string' ? message : String(message ?? '') })));
       return;
     }
 
