@@ -399,16 +399,19 @@ export function createGitService({ validatePath }) {
     const input = `${list.join('\0')}\0`;
     const { stdout } = await runGit(
       repoPath,
-      [gitBinary, 'check-ignore', '-n', '-z', '--stdin'],
+      [gitBinary, 'check-ignore', '-v', '-z', '--stdin'],
       { timeoutMs: 5000, okCodes: [0, 1], input }
     );
-    const tokens = stdout ? stdout.split('\0').filter(Boolean) : [];
+    const records = stdout ? stdout.split('\0').filter(Boolean) : [];
     const matches = [];
-    for (let i = 0; i + 3 < tokens.length; i += 4) {
-      const source = tokens[i];
-      const lineRaw = tokens[i + 1];
-      const pattern = tokens[i + 2];
-      const pathValue = tokens[i + 3];
+    for (const record of records) {
+      const [left, pathValue] = record.split('\t');
+      if (!left || !pathValue) continue;
+      const parts = left.split(':');
+      if (parts.length < 3) continue;
+      const pattern = parts.pop();
+      const lineRaw = parts.pop();
+      const source = parts.join(':');
       const line = Number.parseInt(lineRaw, 10);
       matches.push({
         source,
