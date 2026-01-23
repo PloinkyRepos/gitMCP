@@ -10,6 +10,10 @@
         "path": {
           "type": "string",
           "optional": false
+        },
+        "includeAhead": {
+          "type": "boolean",
+          "optional": true
         }
       },
       "env": {
@@ -265,6 +269,22 @@
       },
       "env": {
         "TOOL_NAME": "git_stash_pop"
+      }
+    },
+    {
+      "name": "git_stash_list",
+      "title": "Git Stash List",
+      "description": "List stash entries for a repository.",
+      "command": "tools/git_tool.sh",
+      "cwd": "workspace",
+      "inputSchema": {
+        "path": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "env": {
+        "TOOL_NAME": "git_stash_list"
       }
     },
     {

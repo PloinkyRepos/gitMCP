@@ -104,6 +104,9 @@ function normalizeArgs(toolName, args) {
     case 'git_diagnose':
     case 'git_identity':
       requirePath();
+      if (toolName === 'git_status') {
+        input.includeAhead = Boolean(input.includeAhead || false);
+      }
       return input;
     case 'git_diff':
       requirePath();
@@ -145,6 +148,9 @@ function normalizeArgs(toolName, args) {
       requirePath();
       input.ref = input.ref ?? null;
       input.reinstateIndex = input.reinstateIndex !== false;
+      return input;
+    case 'git_stash_list':
+      requirePath();
       return input;
     case 'git_commit':
       requirePath();
@@ -286,6 +292,10 @@ async function main() {
         return;
       case 'git_stash_pop':
         result = await gitService.gitStashPop(payload);
+        writeJson(result);
+        return;
+      case 'git_stash_list':
+        result = await gitService.gitStashList(payload);
         writeJson(result);
         return;
       case 'git_commit':

@@ -238,13 +238,45 @@ export function createGitService({ validatePath }) {
     return { ok: true, branch, upstream, remotes };
   }
 
-  async function gitStatus({ path: repoPathArg }) {
+  async function gitStatus({ path: repoPathArg, includeAhead = false }) {
     const repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
     const { stdout } = await runGit(repoPath, [gitBinary, 'status', '--porcelain=v1', '-z', '-uall', '--ignored=matching']);
     const entries = parseStatusPorcelainV1Z(stdout);
     const status = categorizeStatusEntries(entries);
-    return { ok: true, status };
+    if (!includeAhead) {
+      return { ok: true, status };
+    }
+    let branch = null;
+    let upstream = null;
+    let ahead = null;
+    let behind = null;
+    try {
+      const { stdout: branchOut } = await runGit(repoPath, [gitBinary, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeoutMs: 5000 });
+      branch = String(branchOut || '').trim() || null;
+    } catch {
+      branch = null;
+    }
+    try {
+      const { stdout: upstreamOut } = await runGit(repoPath, [gitBinary, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { timeoutMs: 5000 });
+      upstream = String(upstreamOut || '').trim() || null;
+    } catch {
+      upstream = null;
+    }
+    if (upstream) {
+      try {
+        const { stdout: countsOut } = await runGit(repoPath, [gitBinary, 'rev-list', '--left-right', '--count', `${upstream}...HEAD`], { timeoutMs: 5000 });
+        const [behindRaw, aheadRaw] = String(countsOut || '').trim().split(/\s+/);
+        const behindNum = Number(behindRaw);
+        const aheadNum = Number(aheadRaw);
+        if (Number.isFinite(aheadNum)) ahead = aheadNum;
+        if (Number.isFinite(behindNum)) behind = behindNum;
+      } catch {
+        ahead = null;
+        behind = null;
+      }
+    }
+    return { ok: true, status, branch, upstream, ahead, behind };
   }
 
   async function gitStatusOverview({ path: repoPathArg, includeUntracked = false }) {
@@ -522,6 +554,37 @@ export function createGitService({ validatePath }) {
     return { ok: true, created, ref, output };
   }
 
+  async function gitStashList({ path: repoPathArg }) {
+    const repoPath = await resolveRepoPath(repoPathArg);
+    const gitBinary = await getGitBinary(repoPath);
+    const { stdout } = await runGit(repoPath, [
+      gitBinary,
+      'stash',
+      'list',
+      '--date=iso',
+      '--pretty=format:%gd|%s'
+    ], { timeoutMs: 10000 });
+    const output = String(stdout || '').trim();
+    if (!output) {
+      return { ok: true, entries: [] };
+    }
+    const entries = output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [refPart, ...rest] = line.split('|');
+        const ref = (refPart || '').trim();
+        const dateMatch = ref.match(/\{([^}]+)\}/);
+        const date = dateMatch ? dateMatch[1].trim() : '';
+        const cleanDate = date.replace(/\s*[+-]\d{4}\s*$/, '');
+        const cleanRef = cleanDate ? ref.replace(date, cleanDate) : ref;
+        const message = rest.join('|').trim();
+        return { ref: cleanRef, date: cleanDate, message, raw: line };
+      })
+      .filter((entry) => entry.ref);
+    return { ok: true, entries };
+  }
   async function gitStashPop({ path: repoPathArg, ref = null, reinstateIndex = true }) {
     const repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
@@ -987,6 +1050,7 @@ export function createGitService({ validatePath }) {
     gitConflictVersions,
     gitCheckoutConflict,
     gitStash,
+    gitStashList,
     gitStashPop,
     gitCommit,
     gitPull,
