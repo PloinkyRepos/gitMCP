@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { execFile } from 'node:child_process';
 
 function safeParseJson(text) {
   try { return JSON.parse(text); } catch { return null; }
@@ -12,6 +14,47 @@ function stripFences(text) {
     .replace(/^\s*```[\s\S]*?\n/, '')
     .replace(/\n```[\s\S]*$/m, '')
     .trim();
+}
+
+async function runGitMergeFile(oursPath, basePath, theirsPath) {
+  return new Promise((resolve) => {
+    execFile('git', ['merge-file', '-p', oursPath, basePath, theirsPath], { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      resolve({ error, stdout: String(stdout || ''), stderr: String(stderr || '') });
+    });
+  });
+}
+
+function hasConflictMarkers(text) {
+  return text.includes('<<<<<<<') || text.includes('>>>>>>>') || text.includes('=======');
+}
+
+async function tryDeterministicMerge({ base = '', ours = '', theirs = '' } = {}) {
+  if (!ours && !theirs) return null;
+  let tempDir = '';
+  try {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'git-merge-'));
+    const basePath = path.join(tempDir, 'base');
+    const oursPath = path.join(tempDir, 'ours');
+    const theirsPath = path.join(tempDir, 'theirs');
+    await fs.writeFile(basePath, base ?? '', 'utf8');
+    await fs.writeFile(oursPath, ours ?? '', 'utf8');
+    await fs.writeFile(theirsPath, theirs ?? '', 'utf8');
+    const { stdout } = await runGitMergeFile(oursPath, basePath, theirsPath);
+    if (!stdout || hasConflictMarkers(stdout)) {
+      return null;
+    }
+    return stdout;
+  } catch {
+    return null;
+  } finally {
+    if (tempDir) {
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+  }
 }
 
 async function loadWorkspaceLlmModule(workspaceRoot) {
@@ -75,14 +118,11 @@ async function resolveWorkspaceRoot(context = {}) {
 }
 
 function buildPrompt({ base = '', ours = '', theirs = '', source = '' } = {}) {
-  const preferTheirs = String(source || '').toLowerCase().includes('stash');
   const header = [
     'You are resolving a git merge conflict for a single file.',
     'Return ONLY the fully resolved file content.',
     'Do NOT include conflict markers, markdown, or explanations.',
-    preferTheirs
-      ? 'Strategy: prefer THEIRS (stashed local changes) and do NOT merge OURS unless it adds missing lines without altering THEIRS intent.'
-      : 'Strategy: prefer OURS (local); only include THEIRS when it is clearly additive and does not alter OURS intent.',
+    'Strategy: prefer OURS (local). If changes are non-overlapping, include both. If overlapping, keep OURS and drop THEIRS.',
     source ? `Conflict source: ${source}` : '',
     '',
     '[BASE]',
@@ -116,6 +156,11 @@ export default async function resolveConflict(input, context = {}) {
 
   if (!ours && !theirs) {
     throw new Error('Missing ours/theirs content.');
+  }
+
+  const deterministic = await tryDeterministicMerge({ base, ours, theirs });
+  if (typeof deterministic === 'string' && deterministic.trim()) {
+    return deterministic;
   }
 
   const workspaceRoot = await resolveWorkspaceRoot(context);
