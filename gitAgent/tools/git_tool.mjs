@@ -2,8 +2,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createGitService } from '../lib/git-service.mjs';
-import gitCommitMessage from '../lib/git-commit-message.js';
-import resolveConflict from '../lib/git-resolve-conflict.js';
 
 function safeParseJson(text) {
   try { return JSON.parse(text); } catch { return null; }
@@ -188,17 +186,6 @@ function normalizeArgs(toolName, args) {
         throw new Error('git_set_identity requires name and email.');
       }
       return input;
-    case 'git_commit_message':
-      if (!Array.isArray(input.diffs)) {
-        throw new Error('git_commit_message requires diffs array.');
-      }
-      return input;
-    case 'llm_resolve_conflict':
-      input.base = typeof input.base === 'string' ? input.base : '';
-      input.ours = typeof input.ours === 'string' ? input.ours : '';
-      input.theirs = typeof input.theirs === 'string' ? input.theirs : '';
-      input.source = typeof input.source === 'string' ? input.source : '';
-      return input;
     default:
       throw new Error(`Unsupported tool: ${toolName}`);
   }
@@ -226,18 +213,6 @@ async function main() {
   }
 
   try {
-    if (toolName === 'git_commit_message') {
-      const payload = normalizeArgs(toolName, args);
-      const message = await gitCommitMessage(payload, { workspaceRoot: process.env.WORKSPACE_ROOT || process.env.ASSISTOS_FS_ROOT || '' });
-      writeJson({ ok: true, message: typeof message === 'string' ? message : String(message ?? '') });
-      return;
-    }
-    if (toolName === 'llm_resolve_conflict') {
-      const payload = normalizeArgs(toolName, args);
-      const resolved = await resolveConflict(payload, { workspaceRoot: process.env.WORKSPACE_ROOT || process.env.ASSISTOS_FS_ROOT || '' });
-      writeJson({ ok: true, content: typeof resolved === 'string' ? resolved : String(resolved ?? '') });
-      return;
-    }
 
     const roots = getWorkspaceRoots();
     const validatePath = (p) => validatePathArg(p, roots);

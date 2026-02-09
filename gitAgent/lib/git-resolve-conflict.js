@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
+import { getDefaultLLMAgent, registerDefaultLLMAgent } from 'achillesAgentLib/LLMAgents';
 
 function safeParseJson(text) {
   try { return JSON.parse(text); } catch { return null; }
@@ -57,64 +57,9 @@ async function tryDeterministicMerge({ base = '', ours = '', theirs = '' } = {})
   }
 }
 
-async function loadWorkspaceLlmModule(workspaceRoot) {
-  if (!workspaceRoot) {
-    throw new Error('WORKSPACE_ROOT is not set; cannot locate achillesAgentLib.');
-  }
-  const modulePath = path.join(workspaceRoot, 'node_modules', 'achillesAgentLib', 'LLMAgents', 'index.mjs');
-  try {
-    await fs.access(modulePath);
-  } catch {
-    throw new Error(`LLM library not found at ${modulePath}. Ensure Ploinky dependencies are installed in the workspace.`);
-  }
-  return import(pathToFileURL(modulePath).href);
-}
-
-async function pathExists(candidate) {
-  try {
-    await fs.access(candidate);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function resolveWorkspaceRoot(context = {}) {
-  const envCandidates = [
-    context.workspaceRoot,
-    process.env.WORKSPACE_ROOT,
-    process.env.ASSISTOS_FS_ROOT,
-    process.env.PLOINKY_WORKSPACE_ROOT
-  ].filter((value) => typeof value === 'string' && value.trim());
-
-  const baseCandidates = [
-    ...envCandidates,
-    '/workspace',
-    '/code',
-    '/Agent',
-    '/',
-    process.cwd()
-  ];
-
-  const moduleSuffix = path.join('node_modules', 'achillesAgentLib', 'LLMAgents', 'index.mjs');
-
-  for (const base of baseCandidates) {
-    const modulePath = path.join(base, moduleSuffix);
-    if (await pathExists(modulePath)) {
-      return base;
-    }
-  }
-
-  let current = process.cwd();
-  while (current && current !== path.dirname(current)) {
-    const modulePath = path.join(current, moduleSuffix);
-    if (await pathExists(modulePath)) {
-      return current;
-    }
-    current = path.dirname(current);
-  }
-
-  throw new Error('WORKSPACE_ROOT is not set and achillesAgentLib was not found.');
+function getDefaultAgent() {
+  return (typeof getDefaultLLMAgent === 'function' && getDefaultLLMAgent())
+    || (typeof registerDefaultLLMAgent === 'function' && registerDefaultLLMAgent());
 }
 
 function buildPrompt({ base = '', ours = '', theirs = '', source = '' } = {}) {
@@ -163,10 +108,7 @@ export default async function resolveConflict(input, context = {}) {
     return deterministic;
   }
 
-  const workspaceRoot = await resolveWorkspaceRoot(context);
-  const llm = await loadWorkspaceLlmModule(workspaceRoot);
-  const agent = (typeof llm.getDefaultLLMAgent === 'function' && llm.getDefaultLLMAgent())
-    || (typeof llm.registerDefaultLLMAgent === 'function' && llm.registerDefaultLLMAgent());
+  const agent = getDefaultAgent();
   if (!agent) {
     throw new Error('No default LLM agent available.');
   }

@@ -57,5 +57,5 @@ The agent respects these roots when validating paths:
 - `PLOINKY_WORKSPACE_ROOT`
 
 ## Notes
-- `git_commit_message` requires LLM configuration via `achillesAgentLib`.
+- `git_commit_message` requires LLM configuration via `achillesAgentLib` (loaded from `node_modules`).
 - Paths must be within allowed roots. Absolute or workspace-relative paths are accepted.
