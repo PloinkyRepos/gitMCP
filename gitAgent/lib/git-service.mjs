@@ -159,9 +159,13 @@ export function createGitService({ validatePath }) {
   let gitBinaryCwd = null;
 
   async function detectGitBinary(cwd) {
+    // Use a known-good directory for binary detection. The user-provided cwd
+    // may not exist yet, and spawn() throws ENOENT for both "binary not found"
+    // and "cwd not found", making it impossible to distinguish the two cases.
+    const probeCwd = '/tmp';
     const configured = process.env.ASSISTOS_GIT_BINARY || process.env.GIT_BINARY;
     if (configured) {
-      await runGit(cwd, [configured, '--version'], { timeoutMs: 5000 });
+      await runGit(probeCwd, [configured, '--version'], { timeoutMs: 5000 });
       return configured;
     }
 
@@ -175,7 +179,7 @@ export function createGitService({ validatePath }) {
 
     for (const candidate of candidates) {
       try {
-        await runGit(cwd, [candidate, '--version'], { timeoutMs: 5000 });
+        await runGit(probeCwd, [candidate, '--version'], { timeoutMs: 5000 });
         return candidate;
       } catch {
         continue;
