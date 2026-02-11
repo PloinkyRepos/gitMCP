@@ -677,8 +677,46 @@ export function createGitService({ validatePath }) {
   }
 
   async function gitPull({ path: repoPathArg, remote = null, branch = null, rebase = false, ffOnly = true, token = null }) {
-    const repoPath = await resolveRepoPath(repoPathArg);
+    let repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
+
+    // Check if path is actually a git repo; if not, try to find the first repo underneath it.
+    let isRepo = false;
+    try {
+      const { stdout } = await runGit(repoPath, [gitBinary, 'rev-parse', '--is-inside-work-tree'], { timeoutMs: 5000 });
+      isRepo = (stdout || '').trim() === 'true';
+    } catch {
+      isRepo = false;
+    }
+    if (!isRepo) {
+      // Attempt to find a git repo under this path (BFS, depth 3).
+      let foundRepo = '';
+      try {
+        const queue = [{ dir: repoPath, depth: 0 }];
+        while (queue.length) {
+          const { dir, depth } = queue.shift();
+          if (depth > 3) continue;
+          try {
+            await fs.stat(path.join(dir, '.git'));
+            foundRepo = dir;
+            break;
+          } catch { /* not a repo */ }
+          try {
+            const children = await fs.readdir(dir, { withFileTypes: true });
+            for (const entry of children) {
+              if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+              if (entry.name.startsWith('.')) continue;
+              queue.push({ dir: path.join(dir, entry.name), depth: depth + 1 });
+            }
+          } catch { /* skip unreadable dirs */ }
+        }
+      } catch { /* ignore scan errors */ }
+      if (foundRepo) {
+        repoPath = foundRepo;
+      } else {
+        throw new Error(`Path is not a git repository and no repositories were found underneath: ${repoPath}`);
+      }
+    }
 
     const cleanToken = token ? String(token).trim() : '';
     let extraHeader = null;
@@ -706,6 +744,9 @@ export function createGitService({ validatePath }) {
         remoteUrl = '';
       }
 
+      if (!remoteUrl) {
+        throw new Error(`No remote '${remoteForAuth}' configured for repository at ${repoPath}. Ensure the repository has a remote configured.`);
+      }
       const isHttp = remoteUrl.startsWith('http://') || remoteUrl.startsWith('https://');
       if (!isHttp) {
         throw new Error('Remote is not HTTPS; token auth is only supported for HTTPS remotes. Configure an HTTPS remote or pull via SSH.');
