@@ -13,7 +13,7 @@
                 "WORKSPACE_ROOT",
                 "PLOINKY_WORKSPACE_ROOT"
             ],
-            "install": "apk add --no-cache git openssh-client ca-certificates"
+            "postinstall": "apk add --no-cache git openssh-client ca-certificates"
         }
     }
 }
