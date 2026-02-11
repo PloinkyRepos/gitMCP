@@ -680,7 +680,8 @@ export function createGitService({ validatePath }) {
     let repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
 
-    // Check if path is actually a git repo; if not, try to find the first repo underneath it.
+    // Check if path is actually a git repo; if not, try to find the first repo underneath it
+    // or underneath the workspace root (handles non-existent .ploinky/repos paths).
     let isRepo = false;
     try {
       const { stdout } = await runGit(repoPath, [gitBinary, 'rev-parse', '--is-inside-work-tree'], { timeoutMs: 5000 });
@@ -689,17 +690,14 @@ export function createGitService({ validatePath }) {
       isRepo = false;
     }
     if (!isRepo) {
-      // Attempt to find a git repo under this path (BFS, depth 3).
-      let foundRepo = '';
-      try {
-        const queue = [{ dir: repoPath, depth: 0 }];
+      const scanForRepo = async (startDir) => {
+        const queue = [{ dir: startDir, depth: 0 }];
         while (queue.length) {
           const { dir, depth } = queue.shift();
           if (depth > 3) continue;
           try {
             await fs.stat(path.join(dir, '.git'));
-            foundRepo = dir;
-            break;
+            return dir;
           } catch { /* not a repo */ }
           try {
             const children = await fs.readdir(dir, { withFileTypes: true });
@@ -710,7 +708,18 @@ export function createGitService({ validatePath }) {
             }
           } catch { /* skip unreadable dirs */ }
         }
-      } catch { /* ignore scan errors */ }
+        return '';
+      };
+      // Try scanning from the given path first, then fall back to workspace root.
+      let foundRepo = await scanForRepo(repoPath);
+      if (!foundRepo) {
+        try {
+          const workspaceRoot = await validatePath('.');
+          if (workspaceRoot !== repoPath) {
+            foundRepo = await scanForRepo(workspaceRoot);
+          }
+        } catch { /* ignore */ }
+      }
       if (foundRepo) {
         repoPath = foundRepo;
       } else {
