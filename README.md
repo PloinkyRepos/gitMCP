@@ -28,7 +28,7 @@ Use POST JSON-RPC with MCP:
   "params": {
     "name": "git_status",
     "arguments": {
-      "path": "/Users/adrianganga/Desktop/devWork/test1/.ploinky/repos/fileExplorer"
+      "path": "/path/to/workspace/.ploinky/repos/fileExplorer"
     }
   }
 }
