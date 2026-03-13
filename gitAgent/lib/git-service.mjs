@@ -135,6 +135,37 @@ function categorizeStatusEntries(entries) {
   return { staged, unstaged, untracked, conflicted, ignored };
 }
 
+function extractConflictPathsFromOutput(output) {
+  const text = String(output || '');
+  if (!text.trim()) return [];
+  const matches = new Set();
+  const patterns = [
+    /CONFLICT \([^)]+\): .*? in (.+)$/gim,
+    /^UU\s+(.+)$/gim,
+    /^AA\s+(.+)$/gim,
+    /^DD\s+(.+)$/gim,
+    /^DU\s+(.+)$/gim,
+    /^UD\s+(.+)$/gim,
+    /^AU\s+(.+)$/gim,
+    /^UA\s+(.+)$/gim,
+    /^both modified:\s+(.+)$/gim,
+    /^both added:\s+(.+)$/gim,
+    /^both deleted:\s+(.+)$/gim,
+    /^deleted by us:\s+(.+)$/gim,
+    /^deleted by them:\s+(.+)$/gim,
+    /^added by us:\s+(.+)$/gim,
+    /^added by them:\s+(.+)$/gim
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const candidate = String(match[1] || '').trim();
+      if (!candidate) continue;
+      matches.add(candidate.replace(/^["']|["']$/g, ''));
+    }
+  }
+  return Array.from(matches).sort((a, b) => a.localeCompare(b));
+}
+
 function normalizeGitConfigValue(value) {
   if (value === undefined || value === null) return '';
   const v = String(value).trim();
@@ -599,9 +630,26 @@ export function createGitService({ validatePath }) {
     const output = `${stdout}\n${stderr}`.trim();
     const lower = output.toLowerCase();
     const conflicts = lower.includes('conflict') || lower.includes('unmerged');
+    const indexConflicts = lower.includes('conflicts in index') || lower.includes('try without --index');
     const noStash = lower.includes('no stash entries found');
-    const error = !conflicts && !noStash && (lower.includes('error:') || lower.includes('fatal:'));
-    return { ok: !error, conflicts, noStash, output };
+    const error = !conflicts && !indexConflicts && !noStash && (lower.includes('error:') || lower.includes('fatal:'));
+    let conflictPaths = conflicts ? extractConflictPathsFromOutput(output) : [];
+    if (conflicts) {
+      try {
+        const statusPayload = await gitStatus({ path: repoPathArg });
+        const statusPaths = Array.isArray(statusPayload?.status?.conflicted)
+          ? statusPayload.status.conflicted
+              .map((entry) => String(entry?.path || entry || '').trim())
+              .filter(Boolean)
+          : [];
+        if (statusPaths.length) {
+          conflictPaths = statusPaths;
+        }
+      } catch {
+        // Keep output-derived conflict paths as a fallback.
+      }
+    }
+    return { ok: !error, conflicts, indexConflicts, noStash, output, conflictPaths };
   }
 
   async function gitCommit({ path: repoPathArg, message, amend = false, signoff = false, userName = null, userEmail = null }) {
