@@ -185,6 +185,19 @@ function toBasicAuthHeader({ username, token }) {
   return `Authorization: Basic ${encoded}`;
 }
 
+function isGithubHttpsRemote(remoteUrl) {
+  const value = String(remoteUrl || '').trim().toLowerCase();
+  return value.startsWith('https://github.com/') || value.startsWith('http://github.com/');
+}
+
+function getGithubAccessTokenFromMeta(meta) {
+  const auth = meta && typeof meta === 'object' ? meta.auth : null;
+  const github = auth && typeof auth === 'object' ? auth.github : null;
+  if (!github || typeof github !== 'object') return '';
+  if (String(github.provider || '').trim().toLowerCase() !== 'github') return '';
+  return String(github.accessToken || '').trim();
+}
+
 export function createGitService({ validatePath }) {
   let gitBinaryPromise = null;
   let gitBinaryCwd = null;
@@ -670,46 +683,47 @@ export function createGitService({ validatePath }) {
     return { ok: true, stdout, stderr };
   }
 
-  async function gitPush({ path: repoPathArg, remote = null, branch = null, setUpstream = false, token = null }) {
+  async function gitPush({ path: repoPathArg, remote = null, branch = null, setUpstream = false, token = null, _meta = null }) {
     const repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
-
-    const cleanToken = token ? String(token).trim() : '';
-    let extraHeader = null;
-    if (cleanToken) {
-      const guessRemoteForPush = async () => {
-        try {
-          const { stdout } = await runGit(repoPath, [gitBinary, 'config', '--get', 'remote.pushDefault'], { timeoutMs: 5000 });
-          const v = (stdout || '').trim();
-          if (v) return v;
-        } catch {}
-        try {
-          const { stdout } = await runGit(repoPath, [gitBinary, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { timeoutMs: 5000 });
-          const upstream = (stdout || '').trim();
-          if (upstream && upstream.includes('/')) return upstream.split('/')[0];
-        } catch {}
-        return null;
-      };
-
-      const remoteForAuth = remote || (await guessRemoteForPush()) || 'origin';
-      let remoteUrl = '';
+    const guessRemoteForPush = async () => {
       try {
-        const { stdout } = await runGit(repoPath, [gitBinary, 'remote', 'get-url', '--push', remoteForAuth], { timeoutMs: 5000 });
+        const { stdout } = await runGit(repoPath, [gitBinary, 'config', '--get', 'remote.pushDefault'], { timeoutMs: 5000 });
+        const v = (stdout || '').trim();
+        if (v) return v;
+      } catch {}
+      try {
+        const { stdout } = await runGit(repoPath, [gitBinary, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { timeoutMs: 5000 });
+        const upstream = (stdout || '').trim();
+        if (upstream && upstream.includes('/')) return upstream.split('/')[0];
+      } catch {}
+      return null;
+    };
+
+    const remoteForAuth = remote || (await guessRemoteForPush()) || 'origin';
+    let remoteUrl = '';
+    try {
+      const { stdout } = await runGit(repoPath, [gitBinary, 'remote', 'get-url', '--push', remoteForAuth], { timeoutMs: 5000 });
+      remoteUrl = (stdout || '').trim();
+    } catch {
+      try {
+        const { stdout } = await runGit(repoPath, [gitBinary, 'remote', 'get-url', remoteForAuth], { timeoutMs: 5000 });
         remoteUrl = (stdout || '').trim();
       } catch {
-        try {
-          const { stdout } = await runGit(repoPath, [gitBinary, 'remote', 'get-url', remoteForAuth], { timeoutMs: 5000 });
-          remoteUrl = (stdout || '').trim();
-        } catch {
-          remoteUrl = '';
-        }
+        remoteUrl = '';
       }
+    }
 
+    const explicitToken = token ? String(token).trim() : '';
+    const githubToken = getGithubAccessTokenFromMeta(_meta);
+    const effectiveToken = explicitToken || (isGithubHttpsRemote(remoteUrl) ? githubToken : '');
+    let extraHeader = null;
+    if (effectiveToken) {
       const isHttp = remoteUrl.startsWith('http://') || remoteUrl.startsWith('https://');
       if (!isHttp) {
         throw new Error('Remote is not HTTPS; token auth is only supported for HTTPS remotes. Configure an HTTPS remote or push via SSH.');
       }
-      extraHeader = toBasicAuthHeader({ username: 'x-access-token', token: cleanToken });
+      extraHeader = toBasicAuthHeader({ username: 'x-access-token', token: effectiveToken });
     }
 
     const args = [gitBinary];
@@ -724,7 +738,7 @@ export function createGitService({ validatePath }) {
     return { ok: true, stdout, stderr };
   }
 
-  async function gitPull({ path: repoPathArg, remote = null, branch = null, rebase = false, ffOnly = true, token = null }) {
+  async function gitPull({ path: repoPathArg, remote = null, branch = null, rebase = false, ffOnly = true, token = null, _meta = null }) {
     let repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
 
@@ -775,32 +789,34 @@ export function createGitService({ validatePath }) {
       }
     }
 
-    const cleanToken = token ? String(token).trim() : '';
-    let extraHeader = null;
-    if (cleanToken) {
-      const guessRemoteForPull = async () => {
-        try {
-          const { stdout } = await runGit(repoPath, [gitBinary, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { timeoutMs: 5000 });
-          const upstream = (stdout || '').trim();
-          if (upstream && upstream.includes('/')) return upstream.split('/')[0];
-        } catch {}
-        try {
-          const { stdout } = await runGit(repoPath, [gitBinary, 'config', '--get', 'remote.pushDefault'], { timeoutMs: 5000 });
-          const v = (stdout || '').trim();
-          if (v) return v;
-        } catch {}
-        return null;
-      };
-
-      const remoteForAuth = remote || (await guessRemoteForPull()) || 'origin';
-      let remoteUrl = '';
+    const guessRemoteForPull = async () => {
       try {
-        const { stdout } = await runGit(repoPath, [gitBinary, 'remote', 'get-url', remoteForAuth], { timeoutMs: 5000 });
-        remoteUrl = (stdout || '').trim();
-      } catch {
-        remoteUrl = '';
-      }
+        const { stdout } = await runGit(repoPath, [gitBinary, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], { timeoutMs: 5000 });
+        const upstream = (stdout || '').trim();
+        if (upstream && upstream.includes('/')) return upstream.split('/')[0];
+      } catch {}
+      try {
+        const { stdout } = await runGit(repoPath, [gitBinary, 'config', '--get', 'remote.pushDefault'], { timeoutMs: 5000 });
+        const v = (stdout || '').trim();
+        if (v) return v;
+      } catch {}
+      return null;
+    };
 
+    const remoteForAuth = remote || (await guessRemoteForPull()) || 'origin';
+    let remoteUrl = '';
+    try {
+      const { stdout } = await runGit(repoPath, [gitBinary, 'remote', 'get-url', remoteForAuth], { timeoutMs: 5000 });
+      remoteUrl = (stdout || '').trim();
+    } catch {
+      remoteUrl = '';
+    }
+
+    const explicitToken = token ? String(token).trim() : '';
+    const githubToken = getGithubAccessTokenFromMeta(_meta);
+    const effectiveToken = explicitToken || (isGithubHttpsRemote(remoteUrl) ? githubToken : '');
+    let extraHeader = null;
+    if (effectiveToken) {
       if (!remoteUrl) {
         throw new Error(`No remote '${remoteForAuth}' configured for repository at ${repoPath}. Ensure the repository has a remote configured.`);
       }
@@ -808,7 +824,7 @@ export function createGitService({ validatePath }) {
       if (!isHttp) {
         throw new Error('Remote is not HTTPS; token auth is only supported for HTTPS remotes. Configure an HTTPS remote or pull via SSH.');
       }
-      extraHeader = toBasicAuthHeader({ username: 'x-access-token', token: cleanToken });
+      extraHeader = toBasicAuthHeader({ username: 'x-access-token', token: effectiveToken });
     }
 
     const args = [gitBinary];
