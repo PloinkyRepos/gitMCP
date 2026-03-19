@@ -191,7 +191,12 @@ function isGithubHttpsRemote(remoteUrl) {
 }
 
 function getGithubAccessTokenFromMeta(meta) {
-  const auth = meta && typeof meta === 'object' ? meta.auth : null;
+  const directMeta = meta && typeof meta === 'object' ? meta : null;
+  const nestedMeta = directMeta && directMeta.params && typeof directMeta.params === 'object'
+    ? (directMeta.params._meta && typeof directMeta.params._meta === 'object' ? directMeta.params._meta : null)
+    : null;
+  const resolvedMeta = directMeta?.auth ? directMeta : nestedMeta;
+  const auth = resolvedMeta && typeof resolvedMeta === 'object' ? resolvedMeta.auth : null;
   const github = auth && typeof auth === 'object' ? auth.github : null;
   if (!github || typeof github !== 'object') return '';
   if (String(github.provider || '').trim().toLowerCase() !== 'github') return '';
@@ -683,7 +688,7 @@ export function createGitService({ validatePath }) {
     return { ok: true, stdout, stderr };
   }
 
-  async function gitPush({ path: repoPathArg, remote = null, branch = null, setUpstream = false, token = null, _meta = null }) {
+  async function gitPush({ path: repoPathArg, remote = null, branch = null, setUpstream = false, token = null, _meta = null, params = null }) {
     const repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
     const guessRemoteForPush = async () => {
@@ -715,7 +720,7 @@ export function createGitService({ validatePath }) {
     }
 
     const explicitToken = token ? String(token).trim() : '';
-    const githubToken = getGithubAccessTokenFromMeta(_meta);
+    const githubToken = getGithubAccessTokenFromMeta(_meta || (params && typeof params === 'object' ? params._meta : null) || { params });
     const effectiveToken = explicitToken || (isGithubHttpsRemote(remoteUrl) ? githubToken : '');
     let extraHeader = null;
     if (effectiveToken) {
@@ -738,7 +743,7 @@ export function createGitService({ validatePath }) {
     return { ok: true, stdout, stderr };
   }
 
-  async function gitPull({ path: repoPathArg, remote = null, branch = null, rebase = false, ffOnly = true, token = null, _meta = null }) {
+  async function gitPull({ path: repoPathArg, remote = null, branch = null, rebase = false, ffOnly = true, token = null, _meta = null, params = null }) {
     let repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
 
@@ -813,7 +818,7 @@ export function createGitService({ validatePath }) {
     }
 
     const explicitToken = token ? String(token).trim() : '';
-    const githubToken = getGithubAccessTokenFromMeta(_meta);
+    const githubToken = getGithubAccessTokenFromMeta(_meta || (params && typeof params === 'object' ? params._meta : null) || { params });
     const effectiveToken = explicitToken || (isGithubHttpsRemote(remoteUrl) ? githubToken : '');
     let extraHeader = null;
     if (effectiveToken) {
