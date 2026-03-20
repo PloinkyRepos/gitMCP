@@ -141,6 +141,7 @@ function extractConflictPathsFromOutput(output) {
   const matches = new Set();
   const patterns = [
     /CONFLICT \([^)]+\): .*? in (.+)$/gim,
+    /^([^:\n]+): needs merge$/gim,
     /^UU\s+(.+)$/gim,
     /^AA\s+(.+)$/gim,
     /^DD\s+(.+)$/gim,
@@ -164,6 +165,28 @@ function extractConflictPathsFromOutput(output) {
     }
   }
   return Array.from(matches).sort((a, b) => a.localeCompare(b));
+}
+
+function hasGitConflictOutput(output) {
+  const text = String(output || '');
+  if (!text.trim()) return false;
+  return /(^|\n)(CONFLICT \(|UU\s|AA\s|DD\s|DU\s|UD\s|AU\s|UA\s|both modified:|both added:|both deleted:|deleted by us:|deleted by them:|added by us:|added by them:|[^:\n]+: needs merge$)/im.test(text)
+    || /\bunmerged\b/i.test(text);
+}
+
+async function listUnmergedPaths(repoPath, gitBinary) {
+  try {
+    const { stdout } = await runGit(repoPath, [gitBinary, 'diff', '--name-only', '--diff-filter=U'], {
+      timeoutMs: 10000
+    });
+    return stdout
+      .split(/\r?\n/)
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
 }
 
 function normalizeGitConfigValue(value) {
@@ -647,12 +670,19 @@ export function createGitService({ validatePath }) {
     const { stdout, stderr } = await runGit(repoPath, args, { timeoutMs: 30000, okCodes: [0, 1] });
     const output = `${stdout}\n${stderr}`.trim();
     const lower = output.toLowerCase();
-    const conflicts = lower.includes('conflict') || lower.includes('unmerged');
+    let conflicts = hasGitConflictOutput(output);
     const indexConflicts = lower.includes('conflicts in index') || lower.includes('try without --index');
     const noStash = lower.includes('no stash entries found');
     const error = !conflicts && !indexConflicts && !noStash && (lower.includes('error:') || lower.includes('fatal:'));
     let conflictPaths = conflicts ? extractConflictPathsFromOutput(output) : [];
     if (conflicts) {
+      const unmergedPaths = await listUnmergedPaths(repoPath, gitBinary);
+      if (unmergedPaths.length) {
+        conflicts = true;
+        conflictPaths = unmergedPaths;
+      }
+    }
+    if (conflicts && !conflictPaths.length) {
       try {
         const statusPayload = await gitStatus({ path: repoPathArg });
         const statusPaths = Array.isArray(statusPayload?.status?.conflicted)
@@ -661,6 +691,7 @@ export function createGitService({ validatePath }) {
               .filter(Boolean)
           : [];
         if (statusPaths.length) {
+          conflicts = true;
           conflictPaths = statusPaths;
         }
       } catch {
