@@ -48,6 +48,12 @@ function normalizeInput(envelope) {
   return current && typeof current === 'object' ? current : {};
 }
 
+function extractAuthInfo(envelope) {
+  const metadata = envelope && typeof envelope === 'object' ? envelope.metadata : null;
+  const authInfo = metadata && typeof metadata === 'object' ? metadata.authInfo : null;
+  return authInfo && typeof authInfo === 'object' ? authInfo : null;
+}
+
 function getWorkspaceRoots() {
   const roots = [
     process.env.ASSISTOS_FS_ROOT,
@@ -198,6 +204,7 @@ async function main() {
   }
   const envelope = raw && raw.trim() ? safeParseJson(raw) : null;
   const args = normalizeInput(envelope || {});
+  const authInfo = extractAuthInfo(envelope || {});
   const toolName = process.env.TOOL_NAME
     || process.argv[2]
     || envelope?.tool
@@ -219,6 +226,12 @@ async function main() {
     const gitService = createGitService({ validatePath });
 
     const payload = normalizeArgs(toolName, args);
+    if ((toolName === 'git_push' || toolName === 'git_pull') && !payload.token) {
+      const accessToken = String(authInfo?.github?.accessToken || '').trim();
+      if (accessToken) {
+        payload.token = accessToken;
+      }
+    }
     let result;
     switch (toolName) {
       case 'git_info':

@@ -720,8 +720,8 @@ export function createGitService({ validatePath }) {
     }
 
     const explicitToken = token ? String(token).trim() : '';
-    const githubToken = getGithubAccessTokenFromMeta(_meta || (params && typeof params === 'object' ? params._meta : null) || { params });
-    const effectiveToken = explicitToken || (isGithubHttpsRemote(remoteUrl) ? githubToken : '');
+    const metaGithubToken = getGithubAccessTokenFromMeta(_meta || (params && typeof params === 'object' ? params._meta : null) || { params });
+    const effectiveToken = explicitToken || (isGithubHttpsRemote(remoteUrl) ? metaGithubToken : '');
     let extraHeader = null;
     if (effectiveToken) {
       const isHttp = remoteUrl.startsWith('http://') || remoteUrl.startsWith('https://');
@@ -818,8 +818,8 @@ export function createGitService({ validatePath }) {
     }
 
     const explicitToken = token ? String(token).trim() : '';
-    const githubToken = getGithubAccessTokenFromMeta(_meta || (params && typeof params === 'object' ? params._meta : null) || { params });
-    const effectiveToken = explicitToken || (isGithubHttpsRemote(remoteUrl) ? githubToken : '');
+    const metaGithubToken = getGithubAccessTokenFromMeta(_meta || (params && typeof params === 'object' ? params._meta : null) || { params });
+    const effectiveToken = explicitToken || (isGithubHttpsRemote(remoteUrl) ? metaGithubToken : '');
     let extraHeader = null;
     if (effectiveToken) {
       if (!remoteUrl) {
