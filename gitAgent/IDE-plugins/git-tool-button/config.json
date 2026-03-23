@@ -1,5 +1,6 @@
 {
     "pluginCategory": "application",
+    "id": "git",
     "component": "git-tool-button",
     "location": ["file-exp:toolbar"],
     "label": "Git",
