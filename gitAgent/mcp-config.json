@@ -324,6 +324,50 @@
       }
     },
     {
+      "name": "git_auth_status",
+      "title": "Git Auth Status",
+      "description": "Return GitHub auth status for git operations.",
+      "command": "tools/git_tool.sh",
+      "cwd": "workspace",
+      "inputSchema": {},
+      "env": {
+        "TOOL_NAME": "git_auth_status"
+      }
+    },
+    {
+      "name": "git_auth_begin",
+      "title": "Git Auth Begin",
+      "description": "Start GitHub device auth for git operations.",
+      "command": "tools/git_tool.sh",
+      "cwd": "workspace",
+      "inputSchema": {},
+      "env": {
+        "TOOL_NAME": "git_auth_begin"
+      }
+    },
+    {
+      "name": "git_auth_poll",
+      "title": "Git Auth Poll",
+      "description": "Poll GitHub device auth for git operations.",
+      "command": "tools/git_tool.sh",
+      "cwd": "workspace",
+      "inputSchema": {},
+      "env": {
+        "TOOL_NAME": "git_auth_poll"
+      }
+    },
+    {
+      "name": "git_auth_disconnect",
+      "title": "Git Auth Disconnect",
+      "description": "Disconnect GitHub auth used for git operations.",
+      "command": "tools/git_tool.sh",
+      "cwd": "workspace",
+      "inputSchema": {},
+      "env": {
+        "TOOL_NAME": "git_auth_disconnect"
+      }
+    },
+    {
       "name": "git_push",
       "title": "Git Push",
       "description": "Push the current branch to a remote.",

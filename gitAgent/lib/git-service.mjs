@@ -174,6 +174,33 @@ function hasGitConflictOutput(output) {
     || /\bunmerged\b/i.test(text);
 }
 
+const DEFAULT_STASH_EXCLUDED_DIRS = Object.freeze([
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+  'tmp',
+  'logs',
+  'blobs',
+  '.cache',
+  '.turbo',
+  '.parcel-cache',
+  '.mcp-cache'
+]);
+
+function buildGitStashExcludePathspecs() {
+  const patterns = new Set(['.']);
+  for (const dir of DEFAULT_STASH_EXCLUDED_DIRS) {
+    const cleanDir = String(dir || '').trim();
+    if (!cleanDir) continue;
+    patterns.add(`:(exclude)${cleanDir}`);
+    patterns.add(`:(exclude)${cleanDir}/**`);
+    patterns.add(`:(exclude)**/${cleanDir}`);
+    patterns.add(`:(exclude)**/${cleanDir}/**`);
+  }
+  return Array.from(patterns);
+}
+
 async function listUnmergedPaths(repoPath, gitBinary) {
   try {
     const { stdout } = await runGit(repoPath, [gitBinary, 'diff', '--name-only', '--diff-filter=U'], {
@@ -617,6 +644,7 @@ export function createGitService({ validatePath }) {
     if (cleanMessage) {
       args.push('-m', cleanMessage);
     }
+    args.push('--', ...buildGitStashExcludePathspecs());
     const { stdout, stderr } = await runGit(repoPath, args, { timeoutMs: 20000 });
     const output = `${stdout}\n${stderr}`.trim();
     const afterList = await listStash();

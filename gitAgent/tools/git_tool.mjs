@@ -2,6 +2,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createGitService } from '../lib/git-service.mjs';
+import {
+  getGithubAuthStatus,
+  beginGithubDeviceFlow,
+  pollGithubDeviceFlow,
+  disconnectGithubAuth,
+  getGithubAuthAccessToken
+} from '../lib/github-auth.mjs';
 
 function safeParseJson(text) {
   try { return JSON.parse(text); } catch { return null; }
@@ -179,6 +186,11 @@ function normalizeArgs(toolName, args) {
       input.ffOnly = input.ffOnly !== false;
       input.token = input.token ?? null;
       return input;
+    case 'git_auth_status':
+    case 'git_auth_begin':
+    case 'git_auth_poll':
+    case 'git_auth_disconnect':
+      return input;
     case 'git_repos_overview':
       requirePath();
       if (typeof input.maxRepos !== 'number') {
@@ -224,16 +236,38 @@ async function main() {
     const roots = getWorkspaceRoots();
     const validatePath = (p) => validatePathArg(p, roots);
     const gitService = createGitService({ validatePath });
+    const workspaceRoot = roots[0] || process.cwd();
 
     const payload = normalizeArgs(toolName, args);
     if ((toolName === 'git_push' || toolName === 'git_pull') && !payload.token) {
       const accessToken = String(authInfo?.github?.accessToken || '').trim();
       if (accessToken) {
         payload.token = accessToken;
+      } else {
+        const storedToken = getGithubAuthAccessToken({ workspaceRoot });
+        if (storedToken) {
+          payload.token = storedToken;
+        }
       }
     }
     let result;
     switch (toolName) {
+      case 'git_auth_status':
+        result = await getGithubAuthStatus({ workspaceRoot });
+        writeJson(result);
+        return;
+      case 'git_auth_begin':
+        result = await beginGithubDeviceFlow({ workspaceRoot });
+        writeJson(result);
+        return;
+      case 'git_auth_poll':
+        result = await pollGithubDeviceFlow({ workspaceRoot });
+        writeJson(result);
+        return;
+      case 'git_auth_disconnect':
+        result = await disconnectGithubAuth({ workspaceRoot });
+        writeJson(result);
+        return;
       case 'git_info':
         result = await gitService.gitInfo(payload);
         writeJson(result);
