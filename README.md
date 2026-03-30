@@ -2,6 +2,10 @@
 
 Ploinky Git agent that exposes Git functionality via MCP tools. Explorer and other UIs call `gitAgent` instead of running Git directly.
 
+Detailed agent docs:
+
+- [gitAgent README](./gitAgent/README.md)
+
 ## Overview
 - MCP tools are defined in `mcp-config.json`.
 - Tool execution is routed through `tools/git_tool.mjs`.

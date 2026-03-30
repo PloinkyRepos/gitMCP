@@ -27,7 +27,8 @@ import {
     setGitErrorFlag,
     setCredentialsValidated
 } from "./git-commit-modal-utils.js";
-import { FILE_EXP_REFRESH_EVENT, GIT_MODAL_CLOSED_EVENT } from "/explorer/utils/appEvents.js";
+import { FILE_EXP_REFRESH_EVENT } from "/explorer/utils/appEvents.js";
+import { GIT_MODAL_CLOSED_EVENT } from "../../git-tool-button-events.js";
 
 export class GitCommitModal {
     constructor(element, invalidate, props = {}) {

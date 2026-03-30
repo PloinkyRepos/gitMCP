@@ -23,9 +23,9 @@ import {
     AUTOCOMMIT_SETTINGS_CHANGED_EVENT,
     AUTOCOMMIT_RESET_EVENT,
     AUTOCOMMIT_STOP_EVENT,
-    FILE_EXP_REFRESH_EVENT,
-    GIT_MODAL_CLOSED_EVENT
+    FILE_EXP_REFRESH_EVENT
 } from "/explorer/utils/appEvents.js";
+import { GIT_MODAL_CLOSED_EVENT } from "./git-tool-button-events.js";
 
 export function attachGitController(fileExp) {
     const reposRoot = getReposRoot();
