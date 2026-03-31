@@ -53,3 +53,8 @@ Optional provider and integration variables:
 
 - `git_commit_message` depends on the default LLM runtime from `achillesAgentLib`.
 - The agent is decoupled from Explorer UI. Explorer or other clients should call Git through MCP, not through shared UI internals.
+
+## Documentation
+
+- [GA01 - Git Agent Overview](./docs/specs/GA/GA01-agent-overview.md)
+- [GA02 - Explorer Plugin](./docs/specs/GA/GA02-explorer-plugin.md)
