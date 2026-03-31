@@ -6,7 +6,7 @@ const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const GITHUB_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const GITHUB_USER_URL = 'https://api.github.com/user';
 const GITHUB_EMAILS_URL = 'https://api.github.com/user/emails';
-const DEFAULT_SCOPE = 'repo read:user user:email';
+const DEFAULT_SCOPE = 'repo workflow read:user user:email';
 const STATE_FILE = path.join('.ploinky', 'state', 'git-agent-github-auth.json');
 const SECRETS_FILE = path.join('.ploinky', '.secrets');
 
