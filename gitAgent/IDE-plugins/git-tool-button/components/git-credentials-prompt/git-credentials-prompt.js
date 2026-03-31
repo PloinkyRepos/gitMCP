@@ -37,6 +37,7 @@ export class GitCredentialsPrompt {
         this.onRememberChange = this.onRememberChange.bind(this);
         this.onAutocommitChange = this.onAutocommitChange.bind(this);
         this.onAutocommitReposChange = this.onAutocommitReposChange.bind(this);
+        this.onAutocommitToggleAllChange = this.onAutocommitToggleAllChange.bind(this);
         this.onAutoresolveChange = this.onAutoresolveChange.bind(this);
         this.scheduleValidation = this.scheduleValidation.bind(this);
         this.invalidate();
@@ -64,6 +65,7 @@ export class GitCredentialsPrompt {
         this.githubDisconnectButton = this.element.querySelector('[data-local-action="disconnectGithubAuth"]');
         this.autocommitIntervalInput = this.element.querySelector('#gitCredentialsAutocommitInterval');
         this.autocommitReposContainer = this.element.querySelector('#gitCredentialsAutocommitRepos');
+        this.autocommitToggleAllInput = this.element.querySelector('#gitCredentialsAutocommitToggleAll');
         this.autoresolveInput = this.element.querySelector('#gitCredentialsAutoresolve');
         this.saveButton = this.element.querySelector('[data-local-action="saveGitCredentials"]');
 
@@ -96,6 +98,10 @@ export class GitCredentialsPrompt {
         if (this.autocommitReposContainer && !this.autocommitReposContainer.dataset.boundCredentialsInput) {
             this.autocommitReposContainer.addEventListener('change', this.onAutocommitReposChange);
             this.autocommitReposContainer.dataset.boundCredentialsInput = 'true';
+        }
+        if (this.autocommitToggleAllInput && !this.autocommitToggleAllInput.dataset.boundCredentialsInput) {
+            this.autocommitToggleAllInput.addEventListener('change', this.onAutocommitToggleAllChange);
+            this.autocommitToggleAllInput.dataset.boundCredentialsInput = 'true';
         }
         if (this.autoresolveInput && !this.autoresolveInput.dataset.boundCredentialsInput) {
             this.autoresolveInput.addEventListener('change', this.onAutoresolveChange);
@@ -318,6 +324,30 @@ export class GitCredentialsPrompt {
         const autocommitRepos = this.getSelectedAutocommitRepos();
         this.state.autocommitSelected = autocommitRepos;
         this.state.autocommitDirty = true;
+        this.syncAutocommitToggleAllState();
+        this.updateValidationState();
+        this.getParentPresenter()?.handleCredentialsChange?.({
+            name: this.state.name,
+            email: this.state.email,
+            authMethod: this.state.authMethod,
+            token: this.state.token,
+            remember: this.state.remember,
+            autocommitIntervalMinutes: this.state.autocommitIntervalMinutes,
+            autocommitRepos,
+            autoresolveConflicts: this.state.autoresolveConflicts,
+            autocommitDirty: true
+        });
+    }
+
+    onAutocommitToggleAllChange() {
+        const repos = Array.isArray(this.state.autocommitRepos) ? this.state.autocommitRepos : [];
+        const checked = Boolean(this.autocommitToggleAllInput?.checked);
+        const autocommitRepos = checked
+            ? repos.map((repo) => String(repo?.path || '').trim()).filter(Boolean)
+            : [];
+        this.state.autocommitSelected = autocommitRepos;
+        this.state.autocommitDirty = true;
+        this.renderAutocommitRepos();
         this.updateValidationState();
         this.getParentPresenter()?.handleCredentialsChange?.({
             name: this.state.name,
@@ -699,16 +729,36 @@ export class GitCredentialsPrompt {
         }
     }
 
+    syncAutocommitToggleAllState() {
+        if (!this.autocommitToggleAllInput) return;
+        const repos = Array.isArray(this.state.autocommitRepos) ? this.state.autocommitRepos : [];
+        const repoPaths = repos.map((repo) => String(repo?.path || '').trim()).filter(Boolean);
+        if (!repoPaths.length) {
+            this.autocommitToggleAllInput.checked = false;
+            this.autocommitToggleAllInput.indeterminate = false;
+            this.autocommitToggleAllInput.disabled = true;
+            return;
+        }
+        const selectedList = Array.isArray(this.state.autocommitSelected) ? this.state.autocommitSelected : null;
+        const selected = new Set(selectedList === null ? repoPaths : selectedList);
+        const selectedCount = repoPaths.reduce((count, repoPath) => count + (selected.has(repoPath) ? 1 : 0), 0);
+        this.autocommitToggleAllInput.disabled = false;
+        this.autocommitToggleAllInput.checked = selectedCount === repoPaths.length;
+        this.autocommitToggleAllInput.indeterminate = selectedCount > 0 && selectedCount < repoPaths.length;
+    }
+
     renderAutocommitRepos() {
         const container = this.autocommitReposContainer;
         if (!container) return;
         const repos = Array.isArray(this.state.autocommitRepos) ? this.state.autocommitRepos : [];
         if ((!this.state.autocommitReposLoaded || this.state.autocommitReposLoading) && repos.length === 0) {
+            this.syncAutocommitToggleAllState();
             container.textContent = 'Loading repositories...';
             return;
         }
         container.innerHTML = '';
         if (!repos.length) {
+            this.syncAutocommitToggleAllState();
             container.textContent = 'No repositories found.';
             return;
         }
@@ -744,5 +794,6 @@ export class GitCredentialsPrompt {
             fragment.appendChild(label);
         }
         container.appendChild(fragment);
+        this.syncAutocommitToggleAllState();
     }
 }

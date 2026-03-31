@@ -42,6 +42,7 @@ export class GitRepoTree {
         this.boundActions = false;
         this.onKeydown = this.onKeydown.bind(this);
         this.onFilterInput = this.onFilterInput.bind(this);
+        this.onToggleAllInputChange = this.onToggleAllInputChange.bind(this);
         this.invalidate();
     }
 
@@ -50,6 +51,9 @@ export class GitRepoTree {
     afterRender() {
         this.list = this.element.querySelector('.git-repo-tree-list');
         this.filterInput = this.element.querySelector('#gitRepoFilterInput');
+        const modal = this.element.closest('git-commit-modal');
+        this.toggleAllInput = modal?.querySelector('#gitRepoToggleAllInput') || null;
+        this.toggleAllLabel = modal?.querySelector('#gitRepoToggleAllLabel') || null;
         this.bindEvents();
         this.syncFilterInput();
         this.render();
@@ -66,6 +70,13 @@ export class GitRepoTree {
             }
             this.filterInput.addEventListener('input', this.onFilterInput);
             this.boundFilterInput = this.filterInput;
+        }
+        if (this.toggleAllInput && this.toggleAllInput !== this.boundToggleAllInput) {
+            if (this.boundToggleAllInput) {
+                this.boundToggleAllInput.removeEventListener('change', this.onToggleAllInputChange);
+            }
+            this.toggleAllInput.addEventListener('change', this.onToggleAllInputChange);
+            this.boundToggleAllInput = this.toggleAllInput;
         }
         this.boundActions = true;
     }
@@ -149,6 +160,20 @@ export class GitRepoTree {
 
     toggleRepoAllChangesCheckbox(element) {
         this.getParentPresenter()?.toggleRepoAllChangesCheckbox?.(element);
+    }
+
+    onToggleAllInputChange(event) {
+        this.toggleAllReposCheckbox(event?.target || this.toggleAllInput);
+    }
+
+    toggleAllReposCheckbox(element) {
+        const repoPaths = this.getDisplayedRepoOverviews()
+            .map((repo) => String(repo?.path || '').trim())
+            .filter(Boolean);
+        if (!repoPaths.length) return;
+        const action = element?.dataset?.bulkAction === 'uncheck' ? 'uncheck' : 'check';
+        const shouldSelect = action === 'check';
+        this.getParentPresenter()?.toggleMultipleReposAllChanges?.(repoPaths, shouldSelect);
     }
 
     toggleTreeFolder(element) {
@@ -271,6 +296,56 @@ export class GitRepoTree {
         });
     }
 
+    getRepoCheckboxState(repo) {
+        const changedPaths = Array.isArray(repo?.changesAll)
+            ? repo.changesAll.map((c) => (typeof c === 'string' ? c : String(c?.path || ''))).filter(Boolean)
+            : [];
+        const entry = this.getSelectionEntry(repo?.path);
+        const repoSelected = Boolean(entry?.prefixes?.has?.('*'));
+        const selectedCount = changedPaths.reduce((acc, filePath) => acc + (this.isFileSelected(repo?.path, filePath) ? 1 : 0), 0);
+        const any = selectedCount > 0;
+        return {
+            checked: repoSelected || (changedPaths.length > 0 && selectedCount === changedPaths.length),
+            indeterminate: !repoSelected && any && selectedCount < changedPaths.length
+        };
+    }
+
+    syncToggleAllState(repos = []) {
+        if (!this.toggleAllInput) return;
+        const list = Array.isArray(repos) ? repos.filter((repo) => String(repo?.path || '').trim()) : [];
+        if (!list.length) {
+            this.toggleAllInput.checked = false;
+            this.toggleAllInput.indeterminate = false;
+            this.toggleAllInput.disabled = true;
+            this.toggleAllInput.removeAttribute('checked');
+            this.toggleAllInput.dataset.bulkAction = 'check';
+            if (this.toggleAllLabel) this.toggleAllLabel.textContent = 'Check all repos';
+            return;
+        }
+
+        let checkedCount = 0;
+        let hasIndeterminate = false;
+        for (const repo of list) {
+            const state = this.getRepoCheckboxState(repo);
+            if (state.checked) checkedCount += 1;
+            if (state.indeterminate) hasIndeterminate = true;
+        }
+
+        const shouldUncheck = checkedCount > 0 || hasIndeterminate;
+        this.toggleAllInput.disabled = false;
+        this.toggleAllInput.checked = shouldUncheck;
+        this.toggleAllInput.indeterminate = false;
+        if (shouldUncheck) {
+            this.toggleAllInput.setAttribute('checked', '');
+        } else {
+            this.toggleAllInput.removeAttribute('checked');
+        }
+        this.toggleAllInput.dataset.bulkAction = shouldUncheck ? 'uncheck' : 'check';
+        if (this.toggleAllLabel) {
+            this.toggleAllLabel.textContent = shouldUncheck ? 'Uncheck all repos' : 'Check all repos';
+        }
+    }
+
     buildRepoTree(repos) {
         const root = {
             id: '/',
@@ -344,6 +419,7 @@ export class GitRepoTree {
 
         const items = Array.isArray(this.state.repos) ? this.state.repos : [];
         if (this.state.loading && items.length === 0) {
+            this.syncToggleAllState([]);
             const loading = document.createElement('div');
             loading.className = 'git-empty';
             loading.textContent = 'Loading repositories…';
@@ -352,6 +428,7 @@ export class GitRepoTree {
         }
 
         if (items.length === 0) {
+            this.syncToggleAllState([]);
             const empty = document.createElement('div');
             empty.className = 'git-empty';
             empty.textContent = `No repositories found under ${this.state.reposRoot}.`;
@@ -361,12 +438,14 @@ export class GitRepoTree {
 
         const repos = this.getDisplayedRepoOverviews();
         if (repos.length === 0) {
+            this.syncToggleAllState([]);
             const empty = document.createElement('div');
             empty.className = 'git-empty';
             empty.textContent = 'No repositories match this filter.';
             this.list.appendChild(empty);
             return;
         }
+        this.syncToggleAllState(repos);
         const tree = this.buildRepoTree(repos);
         const expandedMap = this.state.repoTreeExpanded || {};
 
@@ -428,15 +507,9 @@ export class GitRepoTree {
                 repoCheckbox.type = 'checkbox';
                 repoCheckbox.setAttribute('data-local-action', 'toggleRepoAllChangesCheckbox');
                 repoCheckbox.dataset.repoPath = repo.path;
-                const changedPaths = Array.isArray(repo?.changesAll)
-                    ? repo.changesAll.map((c) => (typeof c === 'string' ? c : String(c?.path || ''))).filter(Boolean)
-                    : [];
-                const entry = this.getSelectionEntry(repo.path);
-                const repoSelected = Boolean(entry?.prefixes?.has?.('*'));
-                const selectedCount = changedPaths.reduce((acc, p) => acc + (this.isFileSelected(repo.path, p) ? 1 : 0), 0);
-                const any = selectedCount > 0;
-                repoCheckbox.checked = repoSelected || (changedPaths.length > 0 && selectedCount === changedPaths.length);
-                repoCheckbox.indeterminate = !repoSelected && any && selectedCount < changedPaths.length;
+                const repoCheckboxState = this.getRepoCheckboxState(repo);
+                repoCheckbox.checked = repoCheckboxState.checked;
+                repoCheckbox.indeterminate = repoCheckboxState.indeterminate;
 
                 const changesToggle = document.createElement('button');
                 changesToggle.type = 'button';

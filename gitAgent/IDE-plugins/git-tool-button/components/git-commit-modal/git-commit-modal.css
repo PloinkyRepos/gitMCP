@@ -1029,6 +1029,10 @@ dialog.modal.git-commit-modal-dialog.is-fullscreen .git-resize-handle {
     width: 100%;
 }
 
+.autocommit-toggle-all {
+    font-size: 0.78rem;
+}
+
 .autocommit-repos {
     display: flex;
     flex-direction: column;

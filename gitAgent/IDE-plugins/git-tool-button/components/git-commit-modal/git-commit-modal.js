@@ -1009,6 +1009,10 @@ export class GitCommitModal {
         return this.repo.togglePrefixSelection(repoPath, prefix, isSelected);
     }
 
+    toggleMultipleReposAllChanges(repoPaths, isSelected) {
+        return this.repo.toggleMultipleReposAllChanges(repoPaths, isSelected);
+    }
+
     toggleFolderExpanded(folderId) {
         return this.repo.toggleFolderExpanded(folderId);
     }

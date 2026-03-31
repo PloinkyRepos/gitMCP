@@ -95,6 +95,25 @@ export function createGitCommitRepo(ctx) {
         renderRepoOverviews(state.repoOverviews);
     };
 
+    const toggleMultipleReposAllChanges = (repoPaths, isSelected) => {
+        const list = Array.isArray(repoPaths) ? repoPaths.map((entry) => String(entry || '').trim()).filter(Boolean) : [];
+        if (!list.length) return;
+        for (const repoPath of list) {
+            const entry = getSelectedFilesEntry(repoPath);
+            if (!entry) continue;
+            if (isSelected) {
+                togglePrefixSelectionOnEntry(entry, '*', true);
+                continue;
+            }
+            entry.files?.clear?.();
+            entry.sectionsByFile?.clear?.();
+            entry.prefixes?.clear?.();
+            entry.excludedFiles?.clear?.();
+        }
+        updateCommitButtons();
+        renderRepoOverviews(state.repoOverviews);
+    };
+
     const toggleFolderExpanded = (folderId) => {
         if (!folderId) return;
         const expanded = { ...(state.repoTreeExpanded || {}) };
@@ -473,6 +492,7 @@ export function createGitCommitRepo(ctx) {
         getCoveringPrefix,
         getAncestorCoveringPrefix,
         togglePrefixSelection,
+        toggleMultipleReposAllChanges,
         getAllChangedPathsForRepo,
         reconcileSelectedDiffWithChanges,
         getPathsForCommitInRepo
