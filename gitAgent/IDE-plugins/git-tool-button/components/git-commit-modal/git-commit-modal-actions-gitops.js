@@ -17,7 +17,6 @@ import {
     normalizeGitStatusPayload
 } from "./git-commit-modal-utils.js";
 import { withGlobalLoader } from "/explorer/utils/globalLoader.js";
-import { FILE_EXP_REFRESH_EVENT } from "/explorer/utils/appEvents.js";
 
 export function createGitOpsActions(ctx) {
     const {
@@ -35,6 +34,7 @@ export function createGitOpsActions(ctx) {
         clearDiffCache,
         loadRepoOverviews,
         refreshAll,
+        refreshAfterGitOperation,
         showGitAuthPrompt,
         ensureGitIdentityOrPrompt,
         isAutoresolveEnabled,
@@ -49,10 +49,6 @@ export function createGitOpsActions(ctx) {
         dispatchAutocommitReset,
         generateCommitMessageForSelections
     } = ctx;
-
-    const dispatchFileTreeRefresh = () => {
-        window.dispatchEvent(new CustomEvent(FILE_EXP_REFRESH_EVENT));
-    };
 
     const formatCount = (count, singular, plural = `${singular}s`) => {
         const safe = Number.isFinite(Number(count)) ? Number(count) : 0;
@@ -370,10 +366,7 @@ export function createGitOpsActions(ctx) {
                 }
                 applyState({ selectedFilesByRepo: {}, commitMessage: '' }, { silent: true });
                 clearCommitMessageInput();
-                clearDiffCache();
-                await loadRepoOverviews({ force: true });
-                await refreshAll({ force: true });
-                dispatchFileTreeRefresh();
+                await refreshAfterGitOperation();
                 const details = [];
                 if (pullResult.pulledRepos > 0) {
                     details.push(`pulled the latest changes for ${formatCount(pullResult.pulledRepos, 'repository')}`);
@@ -434,6 +427,7 @@ export function createGitOpsActions(ctx) {
                         dispatchAutocommitReset();
                         return;
                     }
+                    await refreshAfterGitOperation({ keepStatus: true });
                     setStatusLine(buildCompletionMessage({
                         intro: 'Sync finished.',
                         details: [
@@ -524,11 +518,8 @@ export function createGitOpsActions(ctx) {
 
                 applyState({ selectedFilesByRepo: {}, commitMessage: '' }, { silent: true });
                 clearCommitMessageInput();
-                clearDiffCache();
                 applyState({ pendingAction: null }, { silent: true });
-                await loadRepoOverviews({ force: true });
-                await refreshAll({ force: true, keepStatus: true });
-                dispatchFileTreeRefresh();
+                await refreshAfterGitOperation({ keepStatus: true });
                 setStatusLine(buildCompletionMessage({
                     intro: 'Sync finished.',
                     details: [
@@ -560,6 +551,7 @@ export function createGitOpsActions(ctx) {
             try {
                 const pushSummary = await pushRepos([state.repoPath], { token });
                 if (!pushSummary?.ok) return;
+                await refreshAfterGitOperation({ keepStatus: true });
                 if (!silent) {
                     setStatusLine(buildCompletionMessage({
                         intro: 'Push finished.',
@@ -589,6 +581,7 @@ export function createGitOpsActions(ctx) {
             try {
                 const pushSummary = await pushRepos(list);
                 if (!pushSummary?.ok) return;
+                await refreshAfterGitOperation({ keepStatus: true });
                 setStatusLine(buildCompletionMessage({
                     intro: 'Push finished.',
                     details: [
@@ -622,10 +615,7 @@ export function createGitOpsActions(ctx) {
             try {
                 const pullResult = await pullRepos(selected);
                 if (!pullResult?.ok) return;
-                clearDiffCache();
-                await loadRepoOverviews({ force: true });
-                await refreshAll({ force: true });
-                dispatchFileTreeRefresh();
+                await refreshAfterGitOperation();
                 setStatusLine(buildCompletionMessage({
                     intro: 'Pull finished.',
                     details: [

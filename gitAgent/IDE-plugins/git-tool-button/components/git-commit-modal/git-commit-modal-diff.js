@@ -227,8 +227,18 @@ export function createGitCommitDiff(ctx) {
         refreshActiveRowStyles();
     };
 
+    const refreshSelectedDiff = async () => {
+        if (!state.selectedPath) {
+            clearSelectedDiff();
+            return false;
+        }
+        await loadDiffForSelection();
+        return true;
+    };
+
     return {
         selectFile,
-        clearSelectedDiff
+        clearSelectedDiff,
+        refreshSelectedDiff
     };
 }

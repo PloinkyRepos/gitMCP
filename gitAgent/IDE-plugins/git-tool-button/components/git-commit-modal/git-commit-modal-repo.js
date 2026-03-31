@@ -21,7 +21,8 @@ export function createGitCommitRepo(ctx) {
         repoOverviewCache,
         setStatusLine,
         updateCommitButtons,
-        clearSelectedDiff
+        clearSelectedDiff,
+        refreshSelectedDiff
     } = ctx;
 
     const getRepoTreePresenter = () => element.querySelector('git-repo-tree')?.webSkelPresenter || null;
@@ -384,7 +385,7 @@ export function createGitCommitRepo(ctx) {
         }
         try {
             await loadRepoOverviews({ force });
-            reconcileSelectedDiffWithChanges();
+            await reconcileSelectedDiffWithChanges();
 
             if (isReposRootPath(state.repoPath, state.reposRoot)) {
                 state.repoInfoOk = false;
@@ -411,7 +412,7 @@ export function createGitCommitRepo(ctx) {
                 }
                 return;
             }
-            reconcileSelectedDiffWithChanges();
+            await reconcileSelectedDiffWithChanges();
             updateCommitButtons();
             if (shouldSetStatus) {
                 setStatusLine('Ready.');
@@ -427,20 +428,23 @@ export function createGitCommitRepo(ctx) {
         return rows.map((r) => (typeof r === 'string' ? r : String(r?.path || ''))).filter(Boolean);
     };
 
-    const reconcileSelectedDiffWithChanges = () => {
+    const reconcileSelectedDiffWithChanges = async () => {
         const filePath = state.selectedPath;
-        if (!filePath) return;
+        if (!filePath) return false;
 
         const repoPath = state.selectedRepoPath || state.repoPath;
         if (!repoPath || isReposRootPath(repoPath, state.reposRoot)) {
             clearSelectedDiff();
-            return;
+            return false;
         }
 
         const changed = getAllChangedPathsForRepo(repoPath);
-        if (changed.length > 0 && !changed.includes(filePath)) {
+        if (!changed.includes(filePath)) {
             clearSelectedDiff();
+            return false;
         }
+        await refreshSelectedDiff?.();
+        return true;
     };
 
     const getPathsForCommitInRepo = (repoPath) => {

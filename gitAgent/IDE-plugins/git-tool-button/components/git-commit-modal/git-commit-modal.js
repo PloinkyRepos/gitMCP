@@ -56,7 +56,8 @@ export class GitCommitModal {
             repoOverviewCache: this.repoOverviewCache,
             setStatusLine: this.setStatusLine.bind(this),
             updateCommitButtons: this.updateCommitButtons.bind(this),
-            clearSelectedDiff: this.clearSelectedDiff.bind(this)
+            clearSelectedDiff: this.clearSelectedDiff.bind(this),
+            refreshSelectedDiff: this.refreshSelectedDiff.bind(this)
         });
         this.diff = createGitCommitDiff({
             element: this.element,
@@ -126,7 +127,8 @@ export class GitCommitModal {
             clearDiffCache: () => this.diffCache.clear(),
             loadRepoInfo: this.loadRepoInfo.bind(this),
             loadRepoOverviews: this.loadRepoOverviews.bind(this),
-            refreshAll: this.refreshAll.bind(this)
+            refreshAll: this.refreshAll.bind(this),
+            refreshAfterGitOperation: this.refreshAfterGitOperation.bind(this)
         });
         this.invalidate();
     }
@@ -971,9 +973,16 @@ export class GitCommitModal {
         return this.actions.generateCommitMessage();
     }
 
-    async refreshAll({ force = false } = {}) {
-        const result = await this.repo.refreshAll({ force });
+    async refreshAll({ force = false, keepStatus = false } = {}) {
+        const result = await this.repo.refreshAll({ force, keepStatus });
         this.syncStaticUI();
+        return result;
+    }
+
+    async refreshAfterGitOperation({ keepStatus = false } = {}) {
+        this.diffCache.clear();
+        const result = await this.refreshAll({ force: true, keepStatus });
+        window.dispatchEvent(new CustomEvent(FILE_EXP_REFRESH_EVENT));
         return result;
     }
 
@@ -1075,6 +1084,11 @@ export class GitCommitModal {
 
     clearSelectedDiff() {
         this.diff.clearSelectedDiff();
+        this.ui.updateRepoTree?.();
+    }
+
+    async refreshSelectedDiff() {
+        await this.diff.refreshSelectedDiff?.();
         this.ui.updateRepoTree?.();
     }
 

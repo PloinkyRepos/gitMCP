@@ -35,7 +35,8 @@ export function createGitCommitActions(ctx) {
         clearDiffCache,
         loadRepoInfo,
         loadRepoOverviews,
-        refreshAll
+        refreshAll,
+        refreshAfterGitOperation
     } = ctx;
 
     const applyState = (patch = {}, options = {}) => {
@@ -545,6 +546,7 @@ export function createGitCommitActions(ctx) {
         clearDiffCache,
         loadRepoOverviews,
         refreshAll,
+        refreshAfterGitOperation,
         showGitAuthPrompt,
         ensureGitIdentityOrPrompt,
         isAutoresolveEnabled,
