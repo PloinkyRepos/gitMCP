@@ -1,5 +1,4 @@
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
 import {
   getStoredGitToken,
@@ -11,9 +10,9 @@ const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const GITHUB_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
 const GITHUB_USER_URL = 'https://api.github.com/user';
 const GITHUB_EMAILS_URL = 'https://api.github.com/user/emails';
+const DEFAULT_CLIENT_ID = 'Ov23liRKJjJHqo3zOOI6';
 const DEFAULT_SCOPE = 'repo workflow read:user user:email';
 const STATE_FILE = path.join('.ploinky', 'state', 'git-agent-github-auth.json');
-const SECRETS_FILE = path.join('.ploinky', '.secrets');
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
@@ -25,10 +24,6 @@ function resolveWorkspaceRoot(workspaceRoot) {
 
 function getStateFilePath(workspaceRoot) {
   return path.join(resolveWorkspaceRoot(workspaceRoot), STATE_FILE);
-}
-
-function getSecretsFilePath(workspaceRoot) {
-  return path.join(resolveWorkspaceRoot(workspaceRoot), SECRETS_FILE);
 }
 
 async function fileExists(filePath) {
@@ -61,48 +56,11 @@ async function writeJsonFile(filePath, value) {
   await fs.rename(tempPath, filePath);
 }
 
-async function parseSecretsFile(workspaceRoot) {
-  const secretsPath = getSecretsFilePath(workspaceRoot);
-  if (!(await fileExists(secretsPath))) {
-    return {};
-  }
-  const raw = await fs.readFile(secretsPath, 'utf8').catch(() => '');
-  const entries = {};
-  for (const line of raw.split('\n')) {
-    if (!line || /^\s*#/.test(line)) {
-      continue;
-    }
-    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)=(.*)\s*$/);
-    if (!match) {
-      continue;
-    }
-    entries[match[1]] = match[2];
-  }
-  return entries;
-}
-
-async function getGithubSetup(workspaceRoot) {
-  const secrets = await parseSecretsFile(workspaceRoot);
-  const clientId = String(
-    process.env.PLOINKY_GITHUB_CLIENT_ID
-    || secrets.PLOINKY_GITHUB_CLIENT_ID
-    || ''
-  ).trim();
-  const clientSecret = String(
-    process.env.PLOINKY_GITHUB_CLIENT_SECRET
-    || secrets.PLOINKY_GITHUB_CLIENT_SECRET
-    || ''
-  ).trim();
-  const scope = String(
-    process.env.PLOINKY_GITHUB_SCOPE
-    || secrets.PLOINKY_GITHUB_SCOPE
-    || DEFAULT_SCOPE
-  ).trim() || DEFAULT_SCOPE;
+async function getGithubSetup() {
   return {
-    configured: Boolean(clientId),
-    clientId,
-    clientSecret,
-    scope
+    configured: true,
+    clientId: DEFAULT_CLIENT_ID,
+    scope: DEFAULT_SCOPE
   };
 }
 
@@ -283,7 +241,7 @@ export async function beginGithubDeviceFlow({ workspaceRoot, authInfo } = {}) {
   if (!setup.configured) {
     return {
       ok: false,
-      message: 'GitHub device flow is not configured. Set PLOINKY_GITHUB_CLIENT_ID in .ploinky/.secrets.'
+      message: 'GitHub device flow is not configured.'
     };
   }
 
@@ -330,7 +288,7 @@ export async function pollGithubDeviceFlow({ workspaceRoot, authInfo } = {}) {
   if (!setup.configured) {
     return {
       ok: false,
-      message: 'GitHub device flow is not configured. Set PLOINKY_GITHUB_CLIENT_ID in .ploinky/.secrets.'
+      message: 'GitHub device flow is not configured.'
     };
   }
 
