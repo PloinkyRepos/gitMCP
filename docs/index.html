@@ -40,35 +40,9 @@
                 </section>
 
                 <section class="highlight-box">
-                    <h3>What this agent does</h3>
-                    <ul>
-                        <li>Acts as an intermediary between Explorer UI actions and Git command execution.</li>
-                        <li>Exposes a controlled MCP tool surface defined in <code>gitAgent/mcp-config.json</code>.</li>
-                        <li>Validates repository paths against workspace roots before running Git operations.</li>
-                        <li>Provides optional GitHub auth flows for push and pull through MCP-accessible auth tools.</li>
-                    </ul>
-                </section>
-
-                <section>
-                    <h2>Documentation Map</h2>
-                    <div class="grid">
-                        <article>
-                            <h3>Architecture</h3>
-                            <p>Layer boundaries and intermediary responsibilities are documented in <a href="architecture.html">Architecture</a>.</p>
-                        </article>
-                        <article>
-                            <h3>Execution Workflow</h3>
-                            <p>Per-call wrapper flow, path validation, dispatch, and response behavior are documented in <a href="execution-workflow.html">Tool Execution Workflow</a>.</p>
-                        </article>
-                        <article>
-                            <h3>MCP Surface</h3>
-                            <p>Current tool contracts and schemas are listed in <a href="mcp-tools.html">MCP Tools</a>.</p>
-                        </article>
-                        <article>
-                            <h3>Configuration</h3>
-                            <p>Manifest profile and runtime environment contract are documented in <a href="configuration.html">Manifest and Environment</a>.</p>
-                        </article>
-                    </div>
+                    <h3>Operational Role</h3>
+                    <p><code>gitAgent</code> mediates Explorer actions and Git process execution through MCP contracts declared in <code>gitAgent/mcp-config.json</code>. The agent validates repository scope against workspace roots before running commands, so Git operations stay inside approved paths.</p>
+                    <p>Remote workflows reuse the same boundary, including optional GitHub authentication flows, which keeps token handling and command execution logic out of the UI layer.</p>
                 </section>
 
                 <section>

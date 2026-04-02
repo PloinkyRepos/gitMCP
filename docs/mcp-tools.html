@@ -84,21 +84,12 @@
 
                 <section>
                     <h2>Common Input Rules</h2>
-                    <ul>
-                        <li>Most tools require <code>path</code> and reject values outside allowed workspace roots.</li>
-                        <li>List-style operations use <code>files</code> arrays when file subsets are needed.</li>
-                        <li>Remote operations support optional token override via <code>token</code>.</li>
-                        <li>Conflict checkout requires <code>source</code> in <code>{"ours","theirs"}</code>.</li>
-                    </ul>
+                    <p>Most tools require a <code>path</code> argument and reject values outside allowed workspace roots. Operations that target subsets use <code>files</code> arrays, remote operations can accept token overrides through <code>token</code>, and conflict checkout requires <code>source</code> constrained to <code>{"ours","theirs"}</code>.</p>
                 </section>
 
                 <section>
                     <h2>Execution Characteristics</h2>
-                    <ul>
-                        <li>Each tool call starts a new Node process through the wrapper script.</li>
-                        <li>Git subprocesses are executed with timeout and error normalization behavior.</li>
-                        <li>Failures are returned as explicit MCP JSON payloads with <code>ok: false</code>.</li>
-                    </ul>
+                    <p>Each invocation starts a new Node process through the wrapper script. Git subprocesses run with timeout and error-normalization behavior, and failures are returned as explicit MCP JSON payloads with <code>ok: false</code>.</p>
                 </section>
             </div>
         </div>

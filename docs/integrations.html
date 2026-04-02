@@ -39,11 +39,7 @@
 
                 <section>
                     <h2>Ploinky Runtime Integration</h2>
-                    <ul>
-                        <li>Agent lifecycle is controlled by <code>gitAgent/manifest.json</code>.</li>
-                        <li>MCP tools are loaded from <code>gitAgent/mcp-config.json</code>.</li>
-                        <li>AgentServer executes tool commands in workspace context and returns MCP responses to clients.</li>
-                    </ul>
+                    <p>Agent lifecycle is controlled by <code>gitAgent/manifest.json</code>, while tool contracts come from <code>gitAgent/mcp-config.json</code>. AgentServer executes those tool commands in workspace context and returns normalized MCP responses to clients, which keeps Git execution policy centralized in the agent.</p>
                 </section>
 
                 <section>
