@@ -16,7 +16,7 @@ export function createRepoActions(ctx) {
             if (!key) return;
             const existing = map.get(key) || {
                 path: key,
-                flags: { staged: false, unstaged: false, untracked: false, conflicted: false },
+                flags: { staged: false, unstaged: false, untracked: false, conflicted: false, ignored: false },
                 origPath: null,
                 x: ' ',
                 y: ' '
@@ -38,6 +38,7 @@ export function createRepoActions(ctx) {
 
         const slice = (list) => (Array.isArray(list) ? list : []).slice(0, limit);
         for (const entry of slice(status.conflicted)) touch(entry, 'conflicted');
+        for (const entry of slice(status.ignored)) touch(entry, 'ignored');
         for (const entry of slice(status.untracked)) touch(entry, 'untracked');
         for (const entry of slice(status.unstaged)) touch(entry, 'unstaged');
         for (const entry of slice(status.staged)) touch(entry, 'staged');
@@ -46,7 +47,8 @@ export function createRepoActions(ctx) {
         for (const row of rows) {
             const f = row.flags || {};
             row.kind = f.conflicted ? 'conflicted'
-                : f.untracked ? 'untracked'
+                : (f.ignored && !f.staged && !f.unstaged && !f.untracked) ? 'ignored'
+                    : f.untracked ? 'untracked'
                     : (f.staged && f.unstaged) ? 'staged+unstaged'
                         : f.staged ? 'staged'
                             : f.unstaged ? 'unstaged'
@@ -81,7 +83,7 @@ export function createRepoActions(ctx) {
                 dirty,
                 counts,
                 changes,
-                changesAll: toChangeRows({ staged, unstaged, untracked, conflicted }),
+                changesAll: toChangeRows({ staged, unstaged, untracked, conflicted, ignored }),
                 sample: {
                     staged: changes.staged.slice(0, 8),
                     unstaged: changes.unstaged.slice(0, 8),

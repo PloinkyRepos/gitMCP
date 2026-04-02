@@ -39,10 +39,6 @@ export class GitRepoTree {
             selectedPath: '',
             selectedRepoPath: ''
         };
-        this.boundActions = false;
-        this.onKeydown = this.onKeydown.bind(this);
-        this.onFilterInput = this.onFilterInput.bind(this);
-        this.onToggleAllInputChange = this.onToggleAllInputChange.bind(this);
         this.invalidate();
     }
 
@@ -54,31 +50,13 @@ export class GitRepoTree {
         const modal = this.element.closest('git-commit-modal');
         this.toggleAllInput = modal?.querySelector('#gitRepoToggleAllInput') || null;
         this.toggleAllLabel = modal?.querySelector('#gitRepoToggleAllLabel') || null;
-        this.bindEvents();
+        this.attachDelegatedListeners();
         this.syncFilterInput();
         this.render();
     }
 
-    bindEvents() {
-        if (!this.element.dataset.boundRepoTreeKeydown) {
-            this.element.addEventListener('keydown', this.onKeydown);
-            this.element.dataset.boundRepoTreeKeydown = 'true';
-        }
-        if (this.filterInput && this.filterInput !== this.boundFilterInput) {
-            if (this.boundFilterInput) {
-                this.boundFilterInput.removeEventListener('input', this.onFilterInput);
-            }
-            this.filterInput.addEventListener('input', this.onFilterInput);
-            this.boundFilterInput = this.filterInput;
-        }
-        if (this.toggleAllInput && this.toggleAllInput !== this.boundToggleAllInput) {
-            if (this.boundToggleAllInput) {
-                this.boundToggleAllInput.removeEventListener('change', this.onToggleAllInputChange);
-            }
-            this.toggleAllInput.addEventListener('change', this.onToggleAllInputChange);
-            this.boundToggleAllInput = this.toggleAllInput;
-        }
-        this.boundActions = true;
+    afterUnload() {
+        this.detachDelegatedListeners();
     }
 
     onKeydown(event) {
@@ -95,6 +73,53 @@ export class GitRepoTree {
             return;
         }
         this.openDiff(target);
+    }
+
+    onInput(event) {
+        const target = event?.target;
+        if (target?.id === 'gitRepoFilterInput') {
+            this.handleFilterInput(event);
+        }
+    }
+
+    onChange(event) {
+        const target = event?.target;
+        if (target === this.toggleAllInput || target?.id === 'gitRepoToggleAllInput') {
+            this.handleToggleAllInputChange(event);
+        }
+    }
+
+    attachDelegatedListeners() {
+        if (!this.delegatedListenersAttached) {
+            this.handleDelegatedKeydown = (event) => this.onKeydown(event);
+            this.handleDelegatedInput = (event) => this.onInput(event);
+            this.handleDelegatedChange = (event) => this.onChange(event);
+            this.element.addEventListener('keydown', this.handleDelegatedKeydown);
+            this.element.addEventListener('input', this.handleDelegatedInput);
+            this.delegatedListenersAttached = true;
+        }
+        if (this.boundToggleAllInput && this.boundToggleAllInput !== this.toggleAllInput) {
+            this.boundToggleAllInput.removeEventListener('change', this.handleDelegatedChange);
+            this.boundToggleAllInput = null;
+        }
+        if (this.toggleAllInput && this.boundToggleAllInput !== this.toggleAllInput) {
+            this.toggleAllInput.addEventListener('change', this.handleDelegatedChange);
+            this.boundToggleAllInput = this.toggleAllInput;
+        }
+    }
+
+    detachDelegatedListeners() {
+        if (!this.delegatedListenersAttached) return;
+        this.element.removeEventListener('keydown', this.handleDelegatedKeydown);
+        this.element.removeEventListener('input', this.handleDelegatedInput);
+        if (this.boundToggleAllInput) {
+            this.boundToggleAllInput.removeEventListener('change', this.handleDelegatedChange);
+        }
+        this.handleDelegatedKeydown = null;
+        this.handleDelegatedInput = null;
+        this.handleDelegatedChange = null;
+        this.boundToggleAllInput = null;
+        this.delegatedListenersAttached = false;
     }
 
     setState(next = {}) {
@@ -143,7 +168,7 @@ export class GitRepoTree {
         }
     }
 
-    onFilterInput(event) {
+    handleFilterInput(event) {
         const value = String(event?.target?.value || '');
         if (value === this.state.repoFilterQuery) return;
         this.state.repoFilterQuery = value;
@@ -162,7 +187,7 @@ export class GitRepoTree {
         this.getParentPresenter()?.toggleRepoAllChangesCheckbox?.(element);
     }
 
-    onToggleAllInputChange(event) {
+    handleToggleAllInputChange(event) {
         this.toggleAllReposCheckbox(event?.target || this.toggleAllInput);
     }
 

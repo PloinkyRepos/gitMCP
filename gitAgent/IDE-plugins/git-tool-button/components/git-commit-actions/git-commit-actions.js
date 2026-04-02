@@ -7,8 +7,6 @@ export class GitCommitActions {
             actionsMenuOpen: false,
             actionsDisabled: false
         };
-        this.boundActions = false;
-        this.onKeydown = this.onKeydown.bind(this);
         this.invalidate();
     }
 
@@ -19,39 +17,36 @@ export class GitCommitActions {
         this.actionsMenu = this.element.querySelector('#gitActionsMenu');
         this.actionsButton = this.element.querySelector('#gitActionsButton');
         this.actionsSplit = this.element.querySelector('#gitActionsSplit');
-
-        this.bindEvents();
+        this.attachDelegatedListeners();
         this.applyState(this.state);
     }
 
-    bindEvents() {
-        if (this.boundActions) return;
-        this.element.addEventListener('keydown', this.onKeydown);
-        this.element.addEventListener('click', (event) => {
-            const info = event.target?.closest?.('.git-menu-info');
-            if (!info) return;
-            event.preventDefault();
-            event.stopPropagation();
-        }, true);
-        this.element.addEventListener('keydown', (event) => {
-            const info = event.target?.closest?.('.git-menu-info');
-            if (!info) return;
-            if (event.key !== 'Enter' && event.key !== ' ') return;
-            event.preventDefault();
-            event.stopPropagation();
-        }, true);
+    afterUnload() {
+        this.detachDelegatedListeners();
+    }
 
-        if (this.commitMessageInput) {
-            this.commitMessageInput.addEventListener('input', (event) => {
-                const value = event?.target?.value || '';
-                this.updateCommitMessage(null, value);
-            });
+    onInput(event) {
+        const target = event?.target;
+        if (target?.id === 'gitCommitMessage') {
+            this.updateCommitMessage(null, target.value || '');
         }
+    }
 
-        this.boundActions = true;
+    onClick(event) {
+        const info = event?.target?.closest?.('.git-menu-info');
+        if (!info) return;
+        event.preventDefault();
+        event.stopPropagation();
     }
 
     onKeydown(event) {
+        const info = event?.target?.closest?.('.git-menu-info');
+        if (info) {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
         const key = event.key;
         if (key !== 'Enter' && key !== ' ') return;
         const target = event.target?.closest?.('.git-menu-item[data-local-action^="runGitAction"]');
@@ -61,6 +56,28 @@ export class GitCommitActions {
         if (!action.startsWith('runGitAction')) return;
         const mode = action.split(/\s+/)[1] || '';
         this.runGitAction(target, mode);
+    }
+
+    attachDelegatedListeners() {
+        if (this.delegatedListenersAttached || !this.element) return;
+        this.handleDelegatedInput = (event) => this.onInput(event);
+        this.handleDelegatedClick = (event) => this.onClick(event);
+        this.handleDelegatedKeydown = (event) => this.onKeydown(event);
+        this.element.addEventListener('input', this.handleDelegatedInput);
+        this.element.addEventListener('click', this.handleDelegatedClick, true);
+        this.element.addEventListener('keydown', this.handleDelegatedKeydown, true);
+        this.delegatedListenersAttached = true;
+    }
+
+    detachDelegatedListeners() {
+        if (!this.delegatedListenersAttached || !this.element) return;
+        this.element.removeEventListener('input', this.handleDelegatedInput);
+        this.element.removeEventListener('click', this.handleDelegatedClick, true);
+        this.element.removeEventListener('keydown', this.handleDelegatedKeydown, true);
+        this.handleDelegatedInput = null;
+        this.handleDelegatedClick = null;
+        this.handleDelegatedKeydown = null;
+        this.delegatedListenersAttached = false;
     }
 
     setState(next = {}) {

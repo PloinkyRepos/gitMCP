@@ -18,12 +18,11 @@ export class GitToolButton {
         this.labelEl = this.element.querySelector('.git-tool-button-label');
         this.controllerHost = this.createControllerHost();
         attachGitController(this.controllerHost);
-        const onClick = () => this.controllerHost.openGitModal?.();
-        this.button?.addEventListener('click', onClick);
         this.syncButtonMetadata();
-        this.cleanupCallbacks.push(() => {
-            this.button?.removeEventListener('click', onClick);
-        });
+    }
+
+    openGitModal() {
+        this.controllerHost?.openGitModal?.();
     }
 
     afterUnload() {

@@ -368,6 +368,22 @@
       }
     },
     {
+      "name": "git_auth_store_token",
+      "title": "Git Auth Store Token",
+      "description": "Store a manual GitHub token in the current user's DPU secrets.",
+      "command": "tools/git_tool.sh",
+      "cwd": "workspace",
+      "inputSchema": {
+        "token": {
+          "type": "string",
+          "optional": false
+        }
+      },
+      "env": {
+        "TOOL_NAME": "git_auth_store_token"
+      }
+    },
+    {
       "name": "git_push",
       "title": "Git Push",
       "description": "Push the current branch to a remote.",

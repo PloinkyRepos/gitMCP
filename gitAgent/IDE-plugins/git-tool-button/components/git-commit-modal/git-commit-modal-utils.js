@@ -245,64 +245,13 @@ export function extractGitPullBlockedFiles(message) {
     return files;
 }
 
-const GIT_PAT_STORAGE_KEY = 'webskel.git.pat';
 const GIT_IDENTITY_NAME_KEY = 'webskel.git.identity.name';
 const GIT_IDENTITY_EMAIL_KEY = 'webskel.git.identity.email';
 const GIT_AUTH_METHOD_STORAGE_KEY = 'webskel.git.auth.method';
-const GIT_TOKEN_SOURCE_STORAGE_KEY = 'webskel.git.token.source';
 const GITHUB_CONNECTION_STORAGE_KEY = 'webskel.git.github.connection';
 
 export function normalizeGitAuthMethod(value) {
     return String(value || '').trim().toLowerCase() === 'github' ? 'github' : 'token';
-}
-
-export function normalizeGitTokenSource(value) {
-    const normalized = String(value || '').trim().toLowerCase();
-    if (normalized === 'github') return 'github';
-    if (normalized === 'token') return 'token';
-    return '';
-}
-
-export function getRememberedGitPat() {
-    try {
-        return String(localStorage.getItem(GIT_PAT_STORAGE_KEY) || '');
-    } catch {
-        return '';
-    }
-}
-
-export function setRememberedGitPat(token) {
-    try {
-        const value = String(token || '').trim();
-        if (!value) {
-            localStorage.removeItem(GIT_PAT_STORAGE_KEY);
-            return;
-        }
-        localStorage.setItem(GIT_PAT_STORAGE_KEY, value);
-    } catch {
-        // ignore
-    }
-}
-
-export function getRememberedGitTokenSource() {
-    try {
-        return normalizeGitTokenSource(localStorage.getItem(GIT_TOKEN_SOURCE_STORAGE_KEY) || '');
-    } catch {
-        return '';
-    }
-}
-
-export function setRememberedGitTokenSource(source) {
-    try {
-        const value = normalizeGitTokenSource(source);
-        if (!value) {
-            localStorage.removeItem(GIT_TOKEN_SOURCE_STORAGE_KEY);
-            return;
-        }
-        localStorage.setItem(GIT_TOKEN_SOURCE_STORAGE_KEY, value);
-    } catch {
-        // ignore
-    }
 }
 
 function sanitizeRememberedGithubConnection(connection = null) {

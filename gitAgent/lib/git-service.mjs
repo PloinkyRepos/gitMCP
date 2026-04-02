@@ -135,6 +135,20 @@ function categorizeStatusEntries(entries) {
   return { staged, unstaged, untracked, conflicted, ignored };
 }
 
+function getStopTrackingIgnoredPaths(status = {}) {
+  const stagedDeletes = new Set(
+    (Array.isArray(status.staged) ? status.staged : [])
+      .filter((entry) => entry?.path && (entry.x === 'D' || entry.y === 'D'))
+      .map((entry) => entry.path)
+  );
+  const ignoredPaths = new Set(
+    (Array.isArray(status.ignored) ? status.ignored : [])
+      .filter((entry) => entry?.path)
+      .map((entry) => entry.path)
+  );
+  return Array.from(stagedDeletes).filter((file) => ignoredPaths.has(file)).sort((a, b) => a.localeCompare(b));
+}
+
 function extractConflictPathsFromOutput(output) {
   const text = String(output || '');
   if (!text.trim()) return [];
@@ -568,6 +582,29 @@ export function createGitService({ validatePath }) {
       }
     }
     const target = list.length ? list : ['.'];
+    if (list.length) {
+      try {
+        const statusPayload = await gitStatus({ path: repoPath });
+        const status = statusPayload?.status || {};
+        const specialStopTrackingPaths = new Set(getStopTrackingIgnoredPaths(status));
+        const specialTargets = list.filter((file) => specialStopTrackingPaths.has(file));
+        const remainingTargets = list.filter((file) => !specialTargets.includes(file));
+        for (const file of specialTargets) {
+          try {
+            await runGit(repoPath, [gitBinary, 'reset', '-q', 'HEAD', '--', file], { timeoutMs: 25000 });
+          } catch {
+            await runGit(repoPath, [gitBinary, 'restore', '--source=HEAD', '--staged', '--', file], { timeoutMs: 25000 });
+          }
+        }
+        if (!remainingTargets.length) {
+          return { ok: true };
+        }
+        target.length = 0;
+        target.push(...remainingTargets);
+      } catch {
+        // Fallback to the standard restore flow below.
+      }
+    }
     try {
       await runGit(repoPath, [gitBinary, 'restore', '--source=HEAD', '--staged', '--worktree', '--', ...target]);
       return { ok: true };
@@ -638,8 +675,18 @@ export function createGitService({ validatePath }) {
     };
 
     const beforeList = await listStash();
+    let useAll = false;
+    if (includeUntracked) {
+      try {
+        const statusPayload = await gitStatus({ path: repoPath });
+        const status = statusPayload?.status || {};
+        useAll = getStopTrackingIgnoredPaths(status).length > 0;
+      } catch {
+        useAll = false;
+      }
+    }
     const args = [gitBinary, 'stash', 'push'];
-    if (includeUntracked) args.push('-u');
+    if (includeUntracked) args.push(useAll ? '--all' : '-u');
     const cleanMessage = String(message || '').trim();
     if (cleanMessage) {
       args.push('-m', cleanMessage);
@@ -655,7 +702,7 @@ export function createGitService({ validatePath }) {
       const firstLine = afterList.split(/\r?\n/)[0] || '';
       ref = firstLine.split(':')[0].trim() || null;
     }
-    return { ok: true, created, ref, output };
+    return { ok: true, created, ref, output, usedAll: useAll };
   }
 
   async function gitStashList({ path: repoPathArg }) {
@@ -701,6 +748,8 @@ export function createGitService({ validatePath }) {
     let conflicts = hasGitConflictOutput(output);
     const indexConflicts = lower.includes('conflicts in index') || lower.includes('try without --index');
     const noStash = lower.includes('no stash entries found');
+    const untrackedRestoreCollision = lower.includes('already exists, no checkout')
+      && lower.includes('could not restore untracked files from stash');
     const error = !conflicts && !indexConflicts && !noStash && (lower.includes('error:') || lower.includes('fatal:'));
     let conflictPaths = conflicts ? extractConflictPathsFromOutput(output) : [];
     if (conflicts) {
@@ -724,6 +773,31 @@ export function createGitService({ validatePath }) {
         }
       } catch {
         // Keep output-derived conflict paths as a fallback.
+      }
+    }
+    if (untrackedRestoreCollision && !conflicts && !indexConflicts) {
+      try {
+        const statusPayload = await gitStatus({ path: repoPathArg });
+        const status = statusPayload?.status || {};
+        const stopTrackingPaths = getStopTrackingIgnoredPaths(status);
+        if (stopTrackingPaths.length > 0) {
+          try {
+            await runGit(repoPath, [gitBinary, 'stash', 'drop', ref || 'stash@{0}'], { timeoutMs: 10000 });
+          } catch {
+            // The working tree is already in the desired state; dropping the stash is best-effort.
+          }
+          return {
+            ok: true,
+            conflicts: false,
+            indexConflicts: false,
+            noStash: false,
+            output,
+            conflictPaths: [],
+            restoredStopTrackingPaths: stopTrackingPaths
+          };
+        }
+      } catch {
+        // Fall through to the default error handling below.
       }
     }
     return { ok: !error, conflicts, indexConflicts, noStash, output, conflictPaths };
@@ -1131,7 +1205,7 @@ export function createGitService({ validatePath }) {
               const key = entry.path;
               const existing = map.get(key) || {
                 path: key,
-                flags: { staged: false, unstaged: false, untracked: false, conflicted: false },
+                flags: { staged: false, unstaged: false, untracked: false, conflicted: false, ignored: false },
                 origPath: null,
                 x: ' ',
                 y: ' '
@@ -1152,6 +1226,7 @@ export function createGitService({ validatePath }) {
             };
 
             for (const entry of (status.conflicted || []).slice(0, limit)) touch(entry, 'conflicted');
+            for (const entry of (status.ignored || []).slice(0, limit)) touch(entry, 'ignored');
             for (const entry of (status.untracked || []).slice(0, limit)) touch(entry, 'untracked');
             for (const entry of (status.unstaged || []).slice(0, limit)) touch(entry, 'unstaged');
             for (const entry of (status.staged || []).slice(0, limit)) touch(entry, 'staged');
@@ -1160,7 +1235,8 @@ export function createGitService({ validatePath }) {
             for (const row of rows) {
               const f = row.flags || {};
               row.kind = f.conflicted ? 'conflicted'
-                : f.untracked ? 'untracked'
+                : (f.ignored && !f.staged && !f.unstaged && !f.untracked) ? 'ignored'
+                  : f.untracked ? 'untracked'
                   : (f.staged && f.unstaged) ? 'staged+unstaged'
                     : f.staged ? 'staged'
                       : f.unstaged ? 'unstaged'
@@ -1185,7 +1261,8 @@ export function createGitService({ validatePath }) {
               staged: fullStaged,
               unstaged: fullUnstaged,
               untracked: fullUntracked,
-              conflicted: fullConflicted
+              conflicted: fullConflicted,
+              ignored: fullIgnored
             }),
             changes: {
               staged: toPaths(fullStaged),

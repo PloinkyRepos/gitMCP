@@ -16,11 +16,7 @@ import {
     isReposRootPath,
     getRememberedGitIdentity,
     getRememberedGitAuthMethod,
-    getRememberedGitPat,
-    getRememberedGitTokenSource,
     getRememberedGithubConnection,
-    setRememberedGitPat,
-    setRememberedGitTokenSource,
     setRememberedGithubConnection,
     clearRememberedGithubConnection,
     normalizeGitAuthMethod,
@@ -168,16 +164,27 @@ export class GitCommitModal {
         this.ui.updateCommitMessage(value);
     }
 
+    getEffectiveCredentialsAuthMethod() {
+        const rawAuthMethod = normalizeGitAuthMethod(this.state.authPrompt?.authMethod ?? getRememberedGitAuthMethod());
+        const currentToken = String(this.state.authPrompt?.token || '').trim();
+        const githubConnected = Boolean(
+            this.state.githubAuth?.connected
+            && this.state.githubAuth?.connection?.source === 'github'
+        );
+        if (githubConnected && !currentToken && !this.state.credentialsDirty) {
+            return 'github';
+        }
+        return rawAuthMethod;
+    }
+
     handleCredentialsChange(detail = {}) {
         const prevName = String(this.state.identityPrompt?.name ?? '');
         const prevEmail = String(this.state.identityPrompt?.email ?? '');
         const prevToken = String(this.state.authPrompt?.token ?? '');
-        const prevRemember = Boolean(this.state.authPrompt?.remember);
-        const prevAuthMethod = normalizeGitAuthMethod(this.state.authPrompt?.authMethod ?? getRememberedGitAuthMethod());
+        const prevAuthMethod = this.getEffectiveCredentialsAuthMethod();
         const nextName = String(detail.name ?? prevName);
         const nextEmail = String(detail.email ?? prevEmail);
         const nextToken = String(detail.token ?? prevToken);
-        const nextRemember = typeof detail.remember === 'boolean' ? detail.remember : prevRemember;
         const nextAuthMethod = normalizeGitAuthMethod(detail.authMethod ?? prevAuthMethod);
         const patch = {};
         if (detail.autocommitDirty) {
@@ -198,7 +205,6 @@ export class GitCommitModal {
                 prevName !== nextName
                 || prevEmail !== nextEmail
                 || prevToken !== nextToken
-                || prevRemember !== nextRemember
                 || prevAuthMethod !== nextAuthMethod
             );
             if (credentialsChanged) {
@@ -215,7 +221,6 @@ export class GitCommitModal {
         patch.authPrompt = {
             ...this.state.authPrompt,
             token: nextToken,
-            remember: nextRemember,
             authMethod: nextAuthMethod
         };
         this.setState(patch, { silent: true });
@@ -358,6 +363,11 @@ export class GitCommitModal {
             name,
             email
         };
+        this.state.credentialsBaseline = {
+            name,
+            email,
+            authMethod: normalizeGitAuthMethod(this.state.authPrompt?.authMethod || getRememberedGitAuthMethod())
+        };
     }
 
     async ensureCredentialsGate() {
@@ -410,9 +420,6 @@ export class GitCommitModal {
     }
 
     updateGithubAuthState(github = {}, { silent = false } = {}) {
-        const rememberedToken = getRememberedGitPat();
-        const rememberedTokenSource = getRememberedGitTokenSource();
-        const hasRememberedGithubToken = rememberedTokenSource === 'github' && Boolean(rememberedToken);
         const liveConnection = github?.connection || null;
         if (liveConnection) {
             setRememberedGithubConnection(liveConnection);
@@ -420,8 +427,9 @@ export class GitCommitModal {
         const rememberedConnection = getRememberedGithubConnection();
         const effectiveConnection = liveConnection || rememberedConnection || null;
         this.state.githubAuth = {
-            configured: Boolean(github?.configured || github?.setup?.configured || hasRememberedGithubToken || effectiveConnection),
-            connected: Boolean(github?.connected || (hasRememberedGithubToken && effectiveConnection)),
+            configured: Boolean(github?.configured || github?.setup?.configured),
+            connected: Boolean(github?.connected),
+            tokenStored: Boolean(github?.tokenStored),
             connection: effectiveConnection,
             pending: github?.pending || null,
             setup: github?.setup || null
@@ -500,13 +508,8 @@ export class GitCommitModal {
     async pollGithubAuth({ silent = false } = {}) {
         const payload = await this.service.pollGithubDeviceFlow();
         const github = payload?.github || {};
-        const token = String(payload?.token || github?.token || '').trim();
-        if (token) {
-            setRememberedGitPat(token);
-            setRememberedGitTokenSource('github');
-            if (github?.connection) {
-                setRememberedGithubConnection(github.connection);
-            }
+        if (github?.connected && github?.connection) {
+            setRememberedGithubConnection(github.connection);
             setCredentialsValidated(false);
         }
         this.updateGithubAuthState(github, { silent });
@@ -543,11 +546,7 @@ export class GitCommitModal {
     async disconnectGithubAuth() {
         const payload = await this.service.disconnectGithubAuth();
         this.clearGithubPollTimer();
-        if (getRememberedGitTokenSource() === 'github') {
-            setRememberedGitPat('');
-            setRememberedGitTokenSource('');
-            setCredentialsValidated(false);
-        }
+        setCredentialsValidated(false);
         clearRememberedGithubConnection();
         this.updateGithubAuthState(payload?.github || {});
         this.updateAuthPrompt();
@@ -630,13 +629,10 @@ export class GitCommitModal {
         this.actions.openGitIgnorePrompt({ repoPath, paths: [filePath], source: 'selection', stopTracking: true });
     }
 
-    async removeIgnoreForFile(element) {
-        const repoPath = element?.dataset?.repoPath || null;
-        const filePath = element?.dataset?.filePath;
-        if (!repoPath || !filePath) return;
-        this.closeFileMenus();
+    async removeIgnoreRuleForFile(repoPath, filePath, { retrack = false } = {}) {
+        if (!repoPath || !filePath) return { ok: false };
         try {
-            this.setStatusLine(`Removing ignore rule for ${filePath}...`);
+            this.setStatusLine(retrack ? `Restoring tracking for ${filePath}...` : `Removing ignore rule for ${filePath}...`);
             const payloadText = await this.service.gitCheckIgnore(repoPath, [filePath]);
             const payload = parseJsonToolResult(payloadText) || {};
             const matches = Array.isArray(payload.matches) ? payload.matches : [];
@@ -672,7 +668,7 @@ export class GitCommitModal {
                 });
                 if (removeIndexes.size === 0) {
                     this.setStatusLine(`No ignore rule found for ${filePath}.`, true);
-                    return;
+                    return { ok: false, removed: false };
                 }
                 const nextLines = lines.filter((_, idx) => !removeIndexes.has(idx));
                 let nextContent = nextLines.join('\n');
@@ -690,9 +686,12 @@ export class GitCommitModal {
                     });
                     this.state.ignoreHints = map;
                 }
+                if (retrack) {
+                    await this.service.gitStage(repoPath, [filePath]);
+                }
                 await this.refreshAll({ force: true });
-                this.setStatusLine(`Removed ignore rule for ${filePath}.`);
-                return;
+                this.setStatusLine(retrack ? `Restored tracking for ${filePath}.` : `Removed ignore rule for ${filePath}.`);
+                return { ok: true, removed: true, blocked: false };
             }
             let changedFiles = 0;
             for (const [sourcePath, entry] of updates.entries()) {
@@ -723,7 +722,7 @@ export class GitCommitModal {
             }
             if (!changedFiles) {
                 this.setStatusLine(`No matching .gitignore entry removed for ${filePath}.`, true);
-                return;
+                return { ok: false, removed: false };
             }
             if (this.state.ignoreHints?.[repoPath]) {
                 const normalized = String(filePath || '').trim().replace(/^\.\/+/, '').replace(/^\/+/, '');
@@ -731,15 +730,108 @@ export class GitCommitModal {
                 map[repoPath] = (map[repoPath] || []).filter((p) => String(p || '').replace(/^\/+/, '') !== normalized);
                 this.state.ignoreHints = map;
             }
+            if (retrack) {
+                await this.service.gitStage(repoPath, [filePath]);
+            }
             await this.refreshAll({ force: true });
             if (blocked.size) {
-                this.setStatusLine(`Removed ignore rule for ${filePath}. Some rules are in global ignores.`, true);
-                return;
+                this.setStatusLine(
+                    retrack
+                        ? `Restored local tracking rule for ${filePath}. Some global ignore rules still apply.`
+                        : `Removed ignore rule for ${filePath}. Some rules are in global ignores.`,
+                    true
+                );
+                return { ok: true, removed: true, blocked: true };
             }
-            this.setStatusLine(`Removed ignore rule for ${filePath}.`);
+            this.setStatusLine(retrack ? `Restored tracking for ${filePath}.` : `Removed ignore rule for ${filePath}.`);
+            return { ok: true, removed: true, blocked: false };
         } catch (error) {
             this.setStatusLine(normalizeErrorMessage(error), true);
+            return { ok: false, removed: false, error };
         }
+    }
+
+    async getLiveGitPathState(repoPath, filePath) {
+        if (!repoPath || !filePath) return null;
+        try {
+            const statusText = await this.service.gitStatus(repoPath);
+            const payload = parseJsonToolResult(statusText) || {};
+            const status = payload?.status || payload || {};
+            const groups = {
+                staged: Array.isArray(status.staged) ? status.staged : [],
+                unstaged: Array.isArray(status.unstaged) ? status.unstaged : [],
+                untracked: Array.isArray(status.untracked) ? status.untracked : [],
+                conflicted: Array.isArray(status.conflicted) ? status.conflicted : [],
+                ignored: Array.isArray(status.ignored) ? status.ignored : []
+            };
+            const key = String(filePath || '').replace(/^\/+/, '');
+            const state = {
+                path: key,
+                x: ' ',
+                y: ' ',
+                flags: {
+                    staged: false,
+                    unstaged: false,
+                    untracked: false,
+                    conflicted: false,
+                    ignored: false
+                }
+            };
+            const touch = (entry, flag) => {
+                const pathValue = String(entry?.path || entry || '').replace(/^\/+/, '');
+                if (pathValue !== key) return;
+                state.flags[flag] = true;
+                if (typeof entry?.x === 'string' && entry.x.length) state.x = entry.x;
+                if (typeof entry?.y === 'string' && entry.y.length) state.y = entry.y;
+            };
+            for (const entry of groups.staged) touch(entry, 'staged');
+            for (const entry of groups.unstaged) touch(entry, 'unstaged');
+            for (const entry of groups.untracked) touch(entry, 'untracked');
+            for (const entry of groups.conflicted) touch(entry, 'conflicted');
+            for (const entry of groups.ignored) touch(entry, 'ignored');
+            return state;
+        } catch {
+            return null;
+        }
+    }
+
+    async isPathIgnoredByGit(repoPath, filePath) {
+        if (!repoPath || !filePath) return false;
+        try {
+            const normalizedPath = String(filePath || '').replace(/^\/+/, '');
+            const response = await this.service.gitCheckIgnore(repoPath, [normalizedPath]);
+            const payload = parseJsonToolResult(response) || {};
+            const matches = Array.isArray(payload?.matches) ? payload.matches : [];
+            return matches.some((entry) => String(entry?.path || '').replace(/^\/+/, '') === normalizedPath);
+        } catch {
+            return false;
+        }
+    }
+
+    async shouldRollbackByRetracking(repoPath, filePath) {
+        if (!repoPath || !filePath) return false;
+        const normalizedPath = String(filePath || '').replace(/^\/+/, '');
+        const row = await this.getLiveGitPathState(repoPath, normalizedPath);
+        const ignoredByGit = await this.isPathIgnoredByGit(repoPath, normalizedPath);
+        const x = String(row?.x || '');
+        const y = String(row?.y || '');
+        const flags = row?.flags || {};
+        const isTrackedRemoval = Boolean(
+            x === 'D'
+            || y === 'D'
+            || (flags.staged && !flags.untracked)
+            || (flags.unstaged && !flags.untracked)
+        );
+        if (!isTrackedRemoval || !(flags.ignored || ignoredByGit)) return false;
+        return true;
+    }
+
+    async removeIgnoreForFile(element) {
+        const repoPath = element?.dataset?.repoPath || null;
+        const filePath = element?.dataset?.filePath;
+        if (!repoPath || !filePath) return;
+        this.closeFileMenus();
+        await this.removeIgnoreRuleForFile(repoPath, filePath);
     }
 
     async deleteFile(element) {
@@ -767,18 +859,22 @@ export class GitCommitModal {
 
     async rollbackFile(element) {
         const repoPath = element?.dataset?.repoPath || null;
-        const filePath = element?.dataset?.filePath;
+        const filePath = String(element?.dataset?.filePath || '').replace(/^\/+/, '');
         if (!repoPath || !filePath) return;
         this.closeFileMenus();
         const row = element?.closest?.('.git-tree-file-row');
         const isUntracked = Boolean(row?.classList?.contains('is-untracked'));
         const isIgnored = Boolean(row?.classList?.contains('is-ignored'));
+        if (await this.shouldRollbackByRetracking(repoPath, filePath)) {
+            await this.removeIgnoreRuleForFile(repoPath, filePath, { retrack: true });
+            return;
+        }
         if (isUntracked) {
             await this.deleteFile(element);
             return;
         }
         if (isIgnored) {
-            this.setStatusLine(`Cannot rollback ignored file: ${filePath}.`, true);
+            await this.removeIgnoreRuleForFile(repoPath, filePath, { retrack: true });
             return;
         }
         try {
@@ -845,7 +941,6 @@ export class GitCommitModal {
             repoPath: null,
             pendingAction: null,
             token: '',
-            remember: false,
             authMethod: getRememberedGitAuthMethod()
         };
         this.state.ignorePrompt = {
@@ -1128,7 +1223,6 @@ export class GitCommitModal {
         const shouldClose = await this.actions.saveGitCredentials(payload);
         if (shouldClose) {
             this.closeCredentials();
-            this.syncStaticUI();
         }
         return shouldClose;
     }

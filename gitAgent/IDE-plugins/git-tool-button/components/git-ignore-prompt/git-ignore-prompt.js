@@ -13,8 +13,6 @@ export class GitIgnorePrompt {
             source: 'manual',
             stopTracking: false
         };
-        this.onPatternsInput = this.onPatternsInput.bind(this);
-        this.onAnchorChange = this.onAnchorChange.bind(this);
         this.invalidate();
     }
 
@@ -30,16 +28,46 @@ export class GitIgnorePrompt {
         this.modeFile = this.element.querySelector('#gitIgnoreModeFile');
         this.modeFolder = this.element.querySelector('#gitIgnoreModeFolder');
         this.saveButton = this.element.querySelector('[data-local-action="saveGitIgnore"]');
-
-        if (this.patternsInput && !this.patternsInput.dataset.boundIgnoreInput) {
-            this.patternsInput.addEventListener('input', this.onPatternsInput);
-            this.patternsInput.dataset.boundIgnoreInput = 'true';
-        }
-        if (this.anchorInput && !this.anchorInput.dataset.boundIgnoreInput) {
-            this.anchorInput.addEventListener('change', this.onAnchorChange);
-            this.anchorInput.dataset.boundIgnoreInput = 'true';
-        }
+        this.attachDelegatedListeners();
         this.applyState(this.state);
+    }
+
+    afterUnload() {
+        this.detachDelegatedListeners();
+    }
+
+    onInput(event) {
+        const target = event?.target;
+        if (!target) return;
+        if (target.id === 'gitIgnorePatterns') {
+            this.handlePatternsInput();
+        }
+    }
+
+    onChange(event) {
+        const target = event?.target;
+        if (!target) return;
+        if (target.id === 'gitIgnoreAnchor') {
+            this.handleAnchorChange();
+        }
+    }
+
+    attachDelegatedListeners() {
+        if (this.delegatedListenersAttached || !this.element) return;
+        this.handleDelegatedInput = (event) => this.onInput(event);
+        this.handleDelegatedChange = (event) => this.onChange(event);
+        this.element.addEventListener('input', this.handleDelegatedInput);
+        this.element.addEventListener('change', this.handleDelegatedChange);
+        this.delegatedListenersAttached = true;
+    }
+
+    detachDelegatedListeners() {
+        if (!this.delegatedListenersAttached || !this.element) return;
+        this.element.removeEventListener('input', this.handleDelegatedInput);
+        this.element.removeEventListener('change', this.handleDelegatedChange);
+        this.handleDelegatedInput = null;
+        this.handleDelegatedChange = null;
+        this.delegatedListenersAttached = false;
     }
 
     cancelGitIgnore() {
@@ -163,13 +191,13 @@ export class GitIgnorePrompt {
         }
     }
 
-    onPatternsInput() {
+    handlePatternsInput() {
         const patterns = (this.patternsInput?.value || '').trim();
         this.state.patterns = patterns;
         this.getParentPresenter()?.updateIgnorePatterns?.(patterns);
     }
 
-    onAnchorChange() {
+    handleAnchorChange() {
         const anchor = Boolean(this.anchorInput?.checked);
         this.state.anchor = anchor;
         this.getParentPresenter()?.setIgnoreAnchor?.({ anchor });

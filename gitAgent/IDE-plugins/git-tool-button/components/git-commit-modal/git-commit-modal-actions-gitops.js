@@ -8,12 +8,9 @@ import {
     isGitConflictError,
     isGitPullBlockedError,
     extractGitPullBlockedFiles,
-    getRememberedGitPat,
     getRememberedGitIdentity,
     getRememberedGitAuthMethod,
-    getRememberedGitTokenSource,
     normalizeGitAuthMethod,
-    normalizeGitTokenSource,
     normalizeGitStatusPayload
 } from "./git-commit-modal-utils.js";
 import { withGlobalLoader } from "/explorer/utils/globalLoader.js";
@@ -77,15 +74,8 @@ export function createGitOpsActions(ctx) {
 
     const getAuthContext = (state = getState(), tokenOverride = null) => {
         const authMethod = getAuthMethod(state);
-        const rememberedToken = getRememberedGitPat();
-        const rememberedTokenSource = normalizeGitTokenSource(getRememberedGitTokenSource());
-        const githubToken = rememberedTokenSource === 'github' ? rememberedToken : '';
-        const githubConnected = Boolean(state.githubAuth?.connected || githubToken);
-        const token = authMethod === 'token'
-            ? (String(tokenOverride || '').trim()
-                || String(state.authPrompt?.token || '').trim()
-                || rememberedToken)
-            : (String(tokenOverride || '').trim() || githubToken);
+        const githubConnected = Boolean(state.githubAuth?.connected && state.githubAuth?.connection?.source === 'github');
+        const token = String(tokenOverride || '').trim() || String(state.authPrompt?.token || '').trim();
         return {
             authMethod,
             githubConnected,

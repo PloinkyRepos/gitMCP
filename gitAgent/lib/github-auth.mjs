@@ -1,6 +1,11 @@
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import {
+  getStoredGitToken,
+  putStoredGitToken,
+  deleteStoredGitToken
+} from './dpu-secret-client.mjs';
 
 const GITHUB_DEVICE_CODE_URL = 'https://github.com/login/device/code';
 const GITHUB_ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token';
@@ -135,14 +140,15 @@ function sanitizeUser(user = {}) {
 }
 
 function sanitizeConnection(connection) {
-  if (!connection || typeof connection !== 'object' || !isNonEmptyString(connection.accessToken)) {
+  if (!connection || typeof connection !== 'object') {
     return null;
   }
   return {
     provider: 'github',
-    accessToken: connection.accessToken.trim(),
+    accessToken: '',
     tokenType: isNonEmptyString(connection.tokenType) ? connection.tokenType.trim() : 'bearer',
     scope: isNonEmptyString(connection.scope) ? connection.scope.trim() : '',
+    source: isNonEmptyString(connection.source) ? connection.source.trim() : 'github',
     user: sanitizeUser(connection.user || {}),
     connectedAt: Number.isFinite(Number(connection.connectedAt)) ? Number(connection.connectedAt) : Date.now(),
     updatedAt: Number.isFinite(Number(connection.updatedAt)) ? Number(connection.updatedAt) : Date.now()
@@ -184,10 +190,13 @@ async function saveState(workspaceRoot, state) {
 function buildStatusPayload(setup, state, extras = {}) {
   const pending = sanitizePending(state?.pending);
   const connection = sanitizeConnection(state?.connection);
+  const connected = Boolean(connection && (connection.user?.login || connection.user?.name || connection.scope || connection.source));
+  const tokenStored = Boolean(extras?.tokenStored);
   return {
     ok: true,
     configured: Boolean(setup?.configured),
-    connected: Boolean(connection),
+    connected,
+    tokenStored,
     connection: stripAccessToken(connection),
     pending: pending
       ? {
@@ -259,13 +268,17 @@ async function fetchGithubUserProfile(accessToken) {
   });
 }
 
-export async function getGithubAuthStatus({ workspaceRoot } = {}) {
+export async function getGithubAuthStatus({ workspaceRoot, authInfo } = {}) {
   const setup = await getGithubSetup(workspaceRoot);
   const state = await loadState(workspaceRoot);
-  return buildStatusPayload(setup, state);
+  const storedToken = await getStoredGitToken({ workspaceRoot, authInfo });
+  const nextState = state?.connection
+    ? { ...state, connection: { ...state.connection, accessToken: storedToken } }
+    : state;
+  return buildStatusPayload(setup, nextState, { tokenStored: Boolean(storedToken) });
 }
 
-export async function beginGithubDeviceFlow({ workspaceRoot } = {}) {
+export async function beginGithubDeviceFlow({ workspaceRoot, authInfo } = {}) {
   const setup = await getGithubSetup(workspaceRoot);
   if (!setup.configured) {
     return {
@@ -275,13 +288,17 @@ export async function beginGithubDeviceFlow({ workspaceRoot } = {}) {
   }
 
   const state = await loadState(workspaceRoot);
-  if (state.connection) {
-    return buildStatusPayload(setup, state, { token: state.connection.accessToken });
+  const storedToken = await getStoredGitToken({ workspaceRoot, authInfo });
+  if (state.connection && storedToken) {
+    return buildStatusPayload(setup, {
+      ...state,
+      connection: { ...state.connection, accessToken: storedToken }
+    }, { tokenStored: Boolean(storedToken) });
   }
 
   const currentPending = sanitizePending(state.pending);
   if (currentPending) {
-    return buildStatusPayload(setup, { ...state, pending: currentPending });
+    return buildStatusPayload(setup, { ...state, pending: currentPending }, { tokenStored: Boolean(storedToken) });
   }
 
   const payload = await postGitHubForm(GITHUB_DEVICE_CODE_URL, {
@@ -303,10 +320,10 @@ export async function beginGithubDeviceFlow({ workspaceRoot } = {}) {
   };
 
   await saveState(workspaceRoot, nextState);
-  return buildStatusPayload(setup, nextState);
+  return buildStatusPayload(setup, nextState, { tokenStored: Boolean(storedToken) });
 }
 
-export async function pollGithubDeviceFlow({ workspaceRoot } = {}) {
+export async function pollGithubDeviceFlow({ workspaceRoot, authInfo } = {}) {
   const setup = await getGithubSetup(workspaceRoot);
   if (!setup.configured) {
     return {
@@ -317,13 +334,17 @@ export async function pollGithubDeviceFlow({ workspaceRoot } = {}) {
 
   const state = await loadState(workspaceRoot);
   const pending = sanitizePending(state.pending);
+  const storedToken = await getStoredGitToken({ workspaceRoot, authInfo });
 
-  if (state.connection && !pending) {
-    return buildStatusPayload(setup, state, { token: state.connection.accessToken });
+  if (state.connection && !pending && storedToken) {
+    return buildStatusPayload(setup, {
+      ...state,
+      connection: { ...state.connection, accessToken: storedToken }
+    }, { tokenStored: Boolean(storedToken) });
   }
 
   if (!pending) {
-    return buildStatusPayload(setup, state);
+    return buildStatusPayload(setup, state, { tokenStored: Boolean(storedToken) });
   }
 
   const payload = await postGitHubForm(GITHUB_ACCESS_TOKEN_URL, {
@@ -335,7 +356,7 @@ export async function pollGithubDeviceFlow({ workspaceRoot } = {}) {
   const rawError = String(payload?.error || '').trim();
   if (rawError) {
     if (rawError === 'authorization_pending') {
-      return buildStatusPayload(setup, state);
+      return buildStatusPayload(setup, state, { tokenStored: Boolean(storedToken) });
     }
     if (rawError === 'slow_down') {
       const nextPending = {
@@ -347,12 +368,12 @@ export async function pollGithubDeviceFlow({ workspaceRoot } = {}) {
       };
       const nextState = { ...state, pending: nextPending };
       await saveState(workspaceRoot, nextState);
-      return buildStatusPayload(setup, nextState);
+      return buildStatusPayload(setup, nextState, { tokenStored: Boolean(storedToken) });
     }
     if (rawError === 'expired_token' || rawError === 'access_denied' || rawError === 'incorrect_device_code') {
       const nextState = { pending: null, connection: null };
       await saveState(workspaceRoot, nextState);
-      return buildStatusPayload(setup, nextState);
+      return buildStatusPayload(setup, nextState, { tokenStored: false });
     }
     return {
       ok: false,
@@ -371,37 +392,58 @@ export async function pollGithubDeviceFlow({ workspaceRoot } = {}) {
     pending: null,
     connection: sanitizeConnection({
       provider: 'github',
-      accessToken,
+      accessToken: '',
       tokenType: payload?.token_type || 'bearer',
       scope: payload?.scope || setup.scope,
+      source: 'github',
       user,
       connectedAt: state.connection?.connectedAt || now,
       updatedAt: now
     })
   };
 
+  await putStoredGitToken({ workspaceRoot, authInfo, token: accessToken });
   await saveState(workspaceRoot, nextState);
-  return buildStatusPayload(setup, nextState, { token: accessToken });
+  return buildStatusPayload(setup, nextState, { tokenStored: true });
 }
 
-export async function disconnectGithubAuth({ workspaceRoot } = {}) {
+export async function disconnectGithubAuth({ workspaceRoot, authInfo } = {}) {
   const setup = await getGithubSetup(workspaceRoot);
   const nextState = {
     pending: null,
     connection: null
   };
+  await deleteStoredGitToken({ workspaceRoot, authInfo });
   await saveState(workspaceRoot, nextState);
-  return buildStatusPayload(setup, nextState);
+  return buildStatusPayload(setup, nextState, { tokenStored: false });
 }
 
-export function getGithubAuthAccessToken({ workspaceRoot } = {}) {
-  const statePath = getStateFilePath(workspaceRoot);
-  try {
-    const raw = fsSync.readFileSync(statePath, 'utf8');
-    const parsed = JSON.parse(raw);
-    const connection = sanitizeConnection(parsed?.connection);
-    return connection?.accessToken || '';
-  } catch {
-    return '';
+export async function getGithubAuthAccessToken({ workspaceRoot, authInfo } = {}) {
+  return getStoredGitToken({ workspaceRoot, authInfo });
+}
+
+export async function storeManualGitAuthToken({ workspaceRoot, authInfo, token } = {}) {
+  const clean = String(token || '').trim();
+  if (!clean) {
+    throw new Error('Token is required.');
   }
+  await putStoredGitToken({ workspaceRoot, authInfo, token: clean });
+  const setup = await getGithubSetup(workspaceRoot);
+  const state = await loadState(workspaceRoot);
+  const nextState = {
+    ...state,
+    pending: null,
+    connection: sanitizeConnection({
+      provider: 'github',
+      accessToken: '',
+      tokenType: 'bearer',
+      scope: '',
+      source: 'token',
+      user: {},
+      connectedAt: state.connection?.connectedAt || Date.now(),
+      updatedAt: Date.now()
+    })
+  };
+  await saveState(workspaceRoot, nextState);
+  return buildStatusPayload(setup, nextState);
 }

@@ -1,6 +1,5 @@
 import {
     parseJsonToolResult,
-    getRememberedGitPat,
     getRememberedGitIdentity,
     normalizeErrorMessage,
     humanizeGitError,
@@ -358,7 +357,7 @@ export function attachGitController(fileExp) {
         if (Array.isArray(repos) && repos.length === 0) return;
         autocommit.running = true;
         try {
-            const token = getRememberedGitPat();
+            const token = '';
             const rememberedIdentity = getRememberedGitIdentity();
             const selectedRepos = Array.isArray(repos) ? repos.filter(Boolean) : [];
             const repoList = selectedRepos.length ? selectedRepos : await listRepos();

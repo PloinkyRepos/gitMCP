@@ -2,10 +2,8 @@ import {
     isReposRootPath,
     getAutocommitSettings,
     getConflictAutoresolveSetting,
-    getRememberedGitPat,
     getRememberedGitIdentity,
     getRememberedGitAuthMethod,
-    getRememberedGitTokenSource,
     getRememberedGithubConnection,
     normalizeGitAuthMethod
 } from "./git-commit-modal-utils.js";
@@ -105,8 +103,6 @@ export function createGitCommitUI(ctx) {
         const autocommit = getAutocommitSettings();
         const autoresolveSaved = getConflictAutoresolveSetting();
         const rememberedIdentity = getRememberedGitIdentity();
-        const rememberedToken = getRememberedGitPat();
-        const rememberedTokenSource = getRememberedGitTokenSource();
         const rememberedAuthMethod = getRememberedGitAuthMethod();
         const rememberedGithubConnection = getRememberedGithubConnection();
         const autocommitDraft = state.autocommitDraft || {};
@@ -140,17 +136,18 @@ export function createGitCommitUI(ctx) {
         const githubAuth = state.githubAuth || {};
         const githubConnection = githubAuth.connection || rememberedGithubConnection || {};
         const githubPending = githubAuth.pending || {};
+        const githubConnectionSource = String(githubConnection?.source || '').trim().toLowerCase();
         const githubScope = String(githubConnection?.scope || '').trim();
         const githubScopes = githubScope
             ? githubScope.split(',').map((value) => value.trim()).filter(Boolean)
             : [];
         const githubHasRepoScope = githubScopes.includes('repo') || githubScopes.includes('public_repo');
         const githubIdentity = getGithubIdentityFallback();
-        const tokenValue = (authState.token || rememberedToken || '') || '';
-        const githubTokenStored = rememberedTokenSource === 'github' && Boolean(rememberedToken);
+        const tokenValue = authState.token || '';
+        const tokenStored = Boolean(githubAuth.tokenStored);
+        const githubConnected = Boolean(githubAuth.connected && githubConnectionSource === 'github');
         const preferredGithub = Boolean(
-            (githubAuth.connected || githubTokenStored)
-            && rememberedTokenSource !== 'token'
+            githubConnected
             && !authState.token
             && !state.credentialsDirty
         );
@@ -158,28 +155,26 @@ export function createGitCommitUI(ctx) {
             ? 'github'
             : normalizeGitAuthMethod(authState.authMethod || rememberedAuthMethod);
         const fallbackToGithubIdentity = Boolean(
-            (githubAuth.connected || githubTokenStored)
+            githubConnected
             && authMethod === 'github'
             && !state.credentialsDirty
         );
         const resolvedName = identityState.name || rememberedIdentity.name || (fallbackToGithubIdentity ? githubIdentity.name : '');
         const resolvedEmail = identityState.email || rememberedIdentity.email || (fallbackToGithubIdentity ? githubIdentity.email : '');
-        const rememberState = typeof authState.remember === 'boolean' ? authState.remember : Boolean(rememberedToken);
         const detail = {
             visible,
             name: resolvedName,
             email: resolvedEmail,
             authMethod,
             token: tokenValue,
-            remember: rememberState,
             authRequired: Boolean(authState.visible),
             credentialsValidated,
             credentialsDirty: Boolean(state.credentialsDirty),
             autocommitDirty: Boolean(state.autocommitDirty),
             autoresolveDirty: Boolean(state.autoresolveDirty),
-            tokenStored: Boolean(rememberedToken),
-            githubConfigured: Boolean(githubAuth.configured || githubTokenStored || rememberedGithubConnection),
-            githubConnected: Boolean(githubAuth.connected || githubTokenStored),
+            tokenStored,
+            githubConfigured: Boolean(githubAuth.configured),
+            githubConnected,
             githubUserLabel: githubConnection?.user?.login || githubConnection?.user?.name || '',
             githubScope,
             githubHasRepoScope,
@@ -541,8 +536,15 @@ export function createGitCommitUI(ctx) {
     };
 
     const closeCredentials = () => {
-        if (!state.credentialsOpen) return;
         state.credentialsOpen = false;
+        state.identityPrompt = { visible: false, repoPath: null, pendingAction: null, name: '', email: '' };
+        state.authPrompt = {
+            visible: false,
+            repoPath: null,
+            pendingAction: null,
+            token: '',
+            authMethod: state.authPrompt?.authMethod || 'token'
+        };
         syncStaticUI();
     };
 

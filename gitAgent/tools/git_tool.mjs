@@ -7,7 +7,8 @@ import {
   beginGithubDeviceFlow,
   pollGithubDeviceFlow,
   disconnectGithubAuth,
-  getGithubAuthAccessToken
+  getGithubAuthAccessToken,
+  storeManualGitAuthToken
 } from '../lib/github-auth.mjs';
 
 function safeParseJson(text) {
@@ -190,6 +191,7 @@ function normalizeArgs(toolName, args) {
     case 'git_auth_begin':
     case 'git_auth_poll':
     case 'git_auth_disconnect':
+    case 'git_auth_store_token':
       return input;
     case 'git_repos_overview':
       requirePath();
@@ -244,7 +246,7 @@ async function main() {
       if (accessToken) {
         payload.token = accessToken;
       } else {
-        const storedToken = getGithubAuthAccessToken({ workspaceRoot });
+        const storedToken = await getGithubAuthAccessToken({ workspaceRoot, authInfo });
         if (storedToken) {
           payload.token = storedToken;
         }
@@ -253,19 +255,27 @@ async function main() {
     let result;
     switch (toolName) {
       case 'git_auth_status':
-        result = await getGithubAuthStatus({ workspaceRoot });
+        result = await getGithubAuthStatus({ workspaceRoot, authInfo });
         writeJson(result);
         return;
       case 'git_auth_begin':
-        result = await beginGithubDeviceFlow({ workspaceRoot });
+        result = await beginGithubDeviceFlow({ workspaceRoot, authInfo });
         writeJson(result);
         return;
       case 'git_auth_poll':
-        result = await pollGithubDeviceFlow({ workspaceRoot });
+        result = await pollGithubDeviceFlow({ workspaceRoot, authInfo });
         writeJson(result);
         return;
       case 'git_auth_disconnect':
-        result = await disconnectGithubAuth({ workspaceRoot });
+        result = await disconnectGithubAuth({ workspaceRoot, authInfo });
+        writeJson(result);
+        return;
+      case 'git_auth_store_token':
+        result = await storeManualGitAuthToken({
+          workspaceRoot,
+          authInfo,
+          token: String(payload.token || '')
+        });
         writeJson(result);
         return;
       case 'git_info':

@@ -3,8 +3,6 @@ import {
     getRememberedGitIdentity,
     getCredentialsValidated,
     getRememberedGitAuthMethod,
-    getRememberedGitPat,
-    getRememberedGitTokenSource,
     getRememberedGithubConnection
 } from "./git-commit-modal-utils.js";
 import { getReposRoot } from "/explorer/utils/reposRoot.js";
@@ -12,10 +10,7 @@ import { getReposRoot } from "/explorer/utils/reposRoot.js";
 export function createGitCommitState(props = {}) {
     const rememberedIdentity = getRememberedGitIdentity();
     const rememberedAuthMethod = getRememberedGitAuthMethod();
-    const rememberedPat = getRememberedGitPat();
-    const rememberedTokenSource = getRememberedGitTokenSource();
     const rememberedGithubConnection = getRememberedGithubConnection();
-    const hasRememberedGithubToken = rememberedTokenSource === 'github' && Boolean(rememberedPat);
     const reposRoot = getReposRoot();
     const initialState = {
         // Default to the multi-repo root so opening the modal immediately loads all repos under it.
@@ -44,6 +39,7 @@ export function createGitCommitState(props = {}) {
         credentialsGate: false,
         credentialsValidated: getCredentialsValidated(),
         credentialsDirty: false,
+        credentialsBaseline: null,
         autocommitDirty: false,
         autocommitDraft: null,
         autoresolveDirty: false,
@@ -76,13 +72,13 @@ export function createGitCommitState(props = {}) {
             repoPath: null,
             pendingAction: null,
             token: '',
-            remember: true,
             authMethod: rememberedAuthMethod
         },
         githubAuth: {
-            configured: hasRememberedGithubToken,
-            connected: hasRememberedGithubToken,
-            connection: hasRememberedGithubToken ? rememberedGithubConnection : null,
+            configured: Boolean(rememberedGithubConnection),
+            connected: false,
+            tokenStored: false,
+            connection: rememberedGithubConnection || null,
             pending: null,
             setup: null
         },
