@@ -432,24 +432,48 @@ export class GitCommitModal {
             tokenStored: Boolean(github?.tokenStored),
             connection: effectiveConnection,
             pending: github?.pending || null,
-            setup: github?.setup || null
+            setup: github?.setup || null,
+            error: String(github?.error || github?.message || '').trim()
         };
         if (!silent) {
             this.syncStaticUI();
         }
     }
 
-    async refreshGithubAuthStatus({ silent = false } = {}) {
-        const payload = await this.service.githubAuthStatus();
-        this.updateGithubAuthState(payload?.github || {}, { silent });
-        const pending = payload?.github?.pending || null;
-        if (pending?.interval) {
-            this.scheduleGithubPoll(pending.interval);
-        } else {
-            this.clearGithubPollTimer();
+    applyGithubAuthError(error, { silent = false } = {}) {
+        const message = normalizeErrorMessage(error);
+        this.updateGithubAuthState({
+            ...this.state.githubAuth,
+            connected: false,
+            tokenStored: false,
+            pending: null,
+            error: message
+        }, { silent });
+        this.clearGithubPollTimer();
+        this.updateAuthPrompt();
+        this.updateCommitButtons();
+        if (!silent) {
+            this.setStatusLine(message, true);
         }
-        this.ensureGithubDeviceFlow({ silent: true }).catch(() => {});
-        return payload?.github || {};
+        return message;
+    }
+
+    async refreshGithubAuthStatus({ silent = false } = {}) {
+        try {
+            const payload = await this.service.githubAuthStatus();
+            this.updateGithubAuthState(payload?.github || {}, { silent });
+            const pending = payload?.github?.pending || null;
+            if (pending?.interval) {
+                this.scheduleGithubPoll(pending.interval);
+            } else {
+                this.clearGithubPollTimer();
+            }
+            this.ensureGithubDeviceFlow({ silent: true }).catch(() => {});
+            return payload?.github || {};
+        } catch (error) {
+            this.applyGithubAuthError(error, { silent });
+            throw error;
+        }
     }
 
     isGithubAuthSelected() {
@@ -462,7 +486,9 @@ export class GitCommitModal {
         }
         const github = this.state.githubAuth || {};
         const pending = github.pending || null;
-        if (!github.configured || github.connected) {
+        const connectionSource = String(github?.connection?.source || '').trim().toLowerCase();
+        const githubSessionConnected = Boolean(github.connected && connectionSource === 'github');
+        if (!github.configured || githubSessionConnected) {
             return github;
         }
         if (!force && (pending?.userCode || pending?.verificationUri)) {
@@ -474,25 +500,30 @@ export class GitCommitModal {
             return this.githubStartPromise;
         }
         this.githubStartPromise = (async () => {
-            const payload = await this.service.startGithubDeviceFlow();
-            const nextGithub = payload?.github || {};
-            this.updateGithubAuthState(nextGithub, { silent });
-            const nextPending = nextGithub.pending || null;
-            if (nextPending?.interval) {
-                this.scheduleGithubPoll(nextPending.interval);
-            } else {
-                this.clearGithubPollTimer();
+            try {
+                const payload = await this.service.startGithubDeviceFlow();
+                const nextGithub = payload?.github || {};
+                this.updateGithubAuthState(nextGithub, { silent });
+                const nextPending = nextGithub.pending || null;
+                if (nextPending?.interval) {
+                    this.scheduleGithubPoll(nextPending.interval);
+                } else {
+                    this.clearGithubPollTimer();
+                }
+                this.updateAuthPrompt();
+                this.updateCommitButtons();
+                if (!silent) {
+                    this.setStatusLine(
+                        nextPending?.userCode
+                            ? `Open GitHub and enter code ${nextPending.userCode}.`
+                            : 'Continue GitHub sign-in in the browser.'
+                    );
+                }
+                return nextGithub;
+            } catch (error) {
+                this.applyGithubAuthError(error, { silent });
+                throw error;
             }
-            this.updateAuthPrompt();
-            this.updateCommitButtons();
-            if (!silent) {
-                this.setStatusLine(
-                    nextPending?.userCode
-                        ? `Open GitHub and enter code ${nextPending.userCode}.`
-                        : 'Continue GitHub sign-in in the browser.'
-                );
-            }
-            return nextGithub;
         })();
         try {
             return await this.githubStartPromise;
@@ -506,41 +537,48 @@ export class GitCommitModal {
     }
 
     async pollGithubAuth({ silent = false } = {}) {
-        const payload = await this.service.pollGithubDeviceFlow();
-        const github = payload?.github || {};
-        if (github?.connected && github?.connection) {
-            setRememberedGithubConnection(github.connection);
-            setCredentialsValidated(false);
-        }
-        this.updateGithubAuthState(github, { silent });
-        const pending = github.pending || null;
-        if (github.connected) {
-            this.clearGithubPollTimer();
-            await this.prefillCredentialsPanel();
-            const gateActive = await this.ensureCredentialsGate();
-            if (!gateActive && !this.state.repoOverviewsLoaded) {
-                await this.refreshAll({ force: true });
+        try {
+            const payload = await this.service.pollGithubDeviceFlow();
+            const github = payload?.github || {};
+            if (github?.connected && github?.connection) {
+                setRememberedGithubConnection(github.connection);
+                setCredentialsValidated(false);
+            }
+            this.updateGithubAuthState(github, { silent });
+            const pending = github.pending || null;
+            if (github.connected) {
+                this.clearGithubPollTimer();
+                await this.prefillCredentialsPanel();
+                const gateActive = await this.ensureCredentialsGate();
+                if (!gateActive && !this.state.repoOverviewsLoaded) {
+                    await this.refreshAll({ force: true });
+                }
+                this.updateAuthPrompt();
+                this.updateCommitButtons();
+                if (!silent) {
+                    const login = github?.connection?.user?.login || github?.connection?.user?.name || 'GitHub';
+                    this.setStatusLine(`GitHub connected as ${login}.`);
+                }
+                return github;
+            }
+            if (pending?.interval) {
+                this.scheduleGithubPoll(pending.interval);
+            } else {
+                this.clearGithubPollTimer();
+                if (this.isGithubAuthSelected()) {
+                    return this.ensureGithubDeviceFlow({ force: true, silent });
+                }
             }
             this.updateAuthPrompt();
             this.updateCommitButtons();
-            if (!silent) {
-                const login = github?.connection?.user?.login || github?.connection?.user?.name || 'GitHub';
-                this.setStatusLine(`GitHub connected as ${login}.`);
+            if (!silent && pending?.userCode) {
+                this.setStatusLine(`Waiting for GitHub approval for code ${pending.userCode}.`);
             }
             return github;
+        } catch (error) {
+            this.applyGithubAuthError(error, { silent });
+            throw error;
         }
-        if (pending?.interval) {
-            this.scheduleGithubPoll(pending.interval);
-        } else {
-            this.clearGithubPollTimer();
-            if (this.isGithubAuthSelected()) {
-                return this.ensureGithubDeviceFlow({ force: true, silent });
-            }
-        }
-        if (!silent && pending?.userCode) {
-            this.setStatusLine(`Waiting for GitHub approval for code ${pending.userCode}.`);
-        }
-        return github;
     }
 
     async disconnectGithubAuth() {
@@ -969,6 +1007,7 @@ export class GitCommitModal {
     async toggleCredentials() {
         const opening = !this.state.credentialsOpen;
         if (opening && !this.state.credentialsGate) {
+            await this.refreshGithubAuthStatus({ silent: true }).catch(() => {});
             await this.prefillCredentialsPanel();
         }
         return this.ui.toggleCredentials();

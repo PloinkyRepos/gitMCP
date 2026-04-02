@@ -136,6 +136,7 @@ export function createGitCommitUI(ctx) {
         const githubAuth = state.githubAuth || {};
         const githubConnection = githubAuth.connection || rememberedGithubConnection || {};
         const githubPending = githubAuth.pending || {};
+        const githubError = String(githubAuth.error || '').trim();
         const githubConnectionSource = String(githubConnection?.source || '').trim().toLowerCase();
         const githubScope = String(githubConnection?.scope || '').trim();
         const githubScopes = githubScope
@@ -175,6 +176,7 @@ export function createGitCommitUI(ctx) {
             tokenStored,
             githubConfigured: Boolean(githubAuth.configured),
             githubConnected,
+            githubError,
             githubUserLabel: githubConnection?.user?.login || githubConnection?.user?.name || '',
             githubScope,
             githubHasRepoScope,

@@ -289,7 +289,9 @@ export async function beginGithubDeviceFlow({ workspaceRoot, authInfo } = {}) {
 
   const state = await loadState(workspaceRoot);
   const storedToken = await getStoredGitToken({ workspaceRoot, authInfo });
-  if (state.connection && storedToken) {
+  const connectionSource = String(state?.connection?.source || '').trim().toLowerCase();
+  const hasGithubConnection = Boolean(state.connection && connectionSource === 'github' && storedToken);
+  if (hasGithubConnection) {
     return buildStatusPayload(setup, {
       ...state,
       connection: { ...state.connection, accessToken: storedToken }

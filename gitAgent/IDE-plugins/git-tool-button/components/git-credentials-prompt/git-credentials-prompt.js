@@ -15,6 +15,7 @@ export class GitCredentialsPrompt {
             tokenStored: false,
             githubConfigured: false,
             githubConnected: false,
+            githubError: '',
             githubUserLabel: '',
             githubScope: '',
             githubHasRepoScope: false,
@@ -42,6 +43,8 @@ export class GitCredentialsPrompt {
         this.tokenInput = this.element.querySelector('#gitCredentialsToken');
         this.githubPanel = this.element.querySelector('#gitGithubPanel');
         this.tokenPanel = this.element.querySelector('#gitTokenPanel');
+        this.tokenStoredNotice = this.element.querySelector('#gitTokenStoredNotice');
+        this.tokenHint = this.element.querySelector('#gitTokenHint');
         this.githubAuth = this.element.querySelector('#gitGithubAuth');
         this.githubStatus = this.element.querySelector('#gitGithubStatus');
         this.githubScope = this.element.querySelector('#gitGithubScope');
@@ -433,6 +436,9 @@ export class GitCredentialsPrompt {
         if (Object.prototype.hasOwnProperty.call(next, 'githubConnected')) {
             this.state.githubConnected = Boolean(next.githubConnected);
         }
+        if (Object.prototype.hasOwnProperty.call(next, 'githubError')) {
+            this.state.githubError = String(next.githubError || '').trim();
+        }
         if (Object.prototype.hasOwnProperty.call(next, 'githubUserLabel')) {
             this.state.githubUserLabel = String(next.githubUserLabel || '');
         }
@@ -489,17 +495,27 @@ export class GitCredentialsPrompt {
         if (this.tokenInput && this.tokenInput.value !== this.state.token) {
             this.tokenInput.value = this.state.token;
         }
+        if (this.tokenStoredNotice) {
+            this.tokenStoredNotice.hidden = !(this.state.authMethod === 'token' && this.state.tokenStored);
+        }
+        if (this.tokenHint) {
+            this.tokenHint.textContent = this.state.tokenStored
+                ? 'Enter a new personal access token only if you want to replace the stored one.'
+                : 'Use a personal access token for HTTPS remotes when you do not want to use GitHub sign-in.';
+        }
         if (this.githubStatus) {
             if (this.state.githubConnected) {
                 this.githubStatus.textContent = this.state.githubUserLabel
                     ? `Connected as ${this.state.githubUserLabel}.`
                     : 'Connected.';
+            } else if (this.state.githubError) {
+                this.githubStatus.textContent = this.state.githubError;
             } else if (!this.state.githubConfigured) {
                 this.githubStatus.textContent = 'GitHub sign-in is unavailable.';
             } else if (this.state.githubPending) {
                 this.githubStatus.textContent = 'Complete sign-in in GitHub.';
             } else {
-                this.githubStatus.textContent = 'Preparing sign-in...';
+                this.githubStatus.textContent = 'Connect GitHub to continue.';
             }
         }
         if (this.githubScope) {
@@ -523,6 +539,7 @@ export class GitCredentialsPrompt {
         if (this.githubAuth) {
             let githubState = 'idle';
             if (this.state.githubConnected) githubState = 'connected';
+            else if (this.state.githubError) githubState = 'error';
             else if (!this.state.githubConfigured) githubState = 'unavailable';
             else if (this.state.githubPending) githubState = 'pending';
             this.githubAuth.dataset.state = githubState;

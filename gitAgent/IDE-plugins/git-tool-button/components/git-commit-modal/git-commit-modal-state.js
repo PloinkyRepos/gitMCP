@@ -80,7 +80,8 @@ export function createGitCommitState(props = {}) {
             tokenStored: false,
             connection: rememberedGithubConnection || null,
             pending: null,
-            setup: null
+            setup: null,
+            error: ''
         },
         ignorePrompt: {
             visible: false,
