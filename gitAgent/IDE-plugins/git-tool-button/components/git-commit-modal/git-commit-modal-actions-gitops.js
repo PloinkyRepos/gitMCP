@@ -261,6 +261,48 @@ export function createGitOpsActions(ctx) {
         return { ok: true, pulledRepos };
     };
 
+    const commitSelectionForRepo = async ({
+        repoPath,
+        files,
+        message,
+        pendingAction,
+        state
+    }) => {
+        const identityOk = await ensureGitIdentityOrPrompt(repoPath, pendingAction);
+        if (!identityOk) {
+            return { ok: false, blocked: true };
+        }
+        const list = Array.isArray(files) ? files.filter(Boolean) : [];
+        if (!list.length) {
+            return { ok: true, committed: false, fileCount: 0 };
+        }
+        await service.gitStageExact(repoPath, list);
+        const after = parseJsonToolResult(await service.gitStatus(repoPath)) || {};
+        const normalizedAfter = normalizeGitStatusPayload(after);
+        if (!normalizedAfter.paths.staged.length) {
+            return { ok: true, committed: false, fileCount: 0 };
+        }
+        const remembered = getRememberedGitIdentity();
+        const userName = String(remembered.name || state.identityPrompt?.name || '').trim();
+        const userEmail = String(remembered.email || state.identityPrompt?.email || '').trim();
+        try {
+            await service.gitCommit({
+                path: repoPath,
+                message,
+                userName: userName || null,
+                userEmail: userEmail || null
+            });
+        } catch (error) {
+            const msg = normalizeErrorMessage(error);
+            if (isGitIdentityError(msg)) {
+                await ensureGitIdentityOrPrompt(repoPath, pendingAction);
+                return { ok: false, blocked: true };
+            }
+            throw error;
+        }
+        return { ok: true, committed: true, fileCount: list.length };
+    };
+
     const commitSelectedRepos = async () => {
         const state = getState();
         const selected = getSelectedReposForBatch();
@@ -295,36 +337,18 @@ export function createGitOpsActions(ctx) {
                 let committedFiles = 0;
                 let pushSummary = { ok: false, pushedRepos: 0, pushedCommits: 0, skippedRepos: 0 };
                 for (const repoPath of selected) {
-                    const identityOk = await ensureGitIdentityOrPrompt(repoPath, { type: 'commit', mode: 'batch', repoPaths: selected });
-                    if (!identityOk) return;
                     const list = getPathsForCommitInRepo(repoPath);
-                    if (!list.length) continue;
-                    await service.gitStageExact(repoPath, list);
-                    const after = parseJsonToolResult(await service.gitStatus(repoPath));
-                    const afterStatus = after?.status || after || {};
-                    if (!(afterStatus.staged || []).length) {
-                        continue;
-                    }
-                    const remembered = getRememberedGitIdentity();
-                    const userName = String(remembered.name || state.identityPrompt?.name || '').trim();
-                    const userEmail = String(remembered.email || state.identityPrompt?.email || '').trim();
-                    try {
-                        await service.gitCommit({
-                            path: repoPath,
-                            message,
-                            userName: userName || null,
-                            userEmail: userEmail || null
-                        });
-                    } catch (error) {
-                        const msg = normalizeErrorMessage(error);
-                        if (isGitIdentityError(msg)) {
-                            await ensureGitIdentityOrPrompt(repoPath, { type: 'commit', mode: 'batch', repoPaths: selected });
-                            return;
-                        }
-                        throw error;
-                    }
+                    const commitResult = await commitSelectionForRepo({
+                        repoPath,
+                        files: list,
+                        message,
+                        pendingAction: { type: 'commit', mode: 'batch', repoPaths: selected },
+                        state
+                    });
+                    if (!commitResult?.ok) return;
+                    if (!commitResult.committed) continue;
                     committedRepos += 1;
-                    committedFiles += list.length;
+                    committedFiles += commitResult.fileCount;
                     if (shouldPush) {
                         const auth = getAuthContext(getState());
                         try {
@@ -397,16 +421,11 @@ export function createGitOpsActions(ctx) {
                 const stagedSelections = [];
                 for (const repoPath of selected) {
                     const statusPayload = parseJsonToolResult(await service.gitStatus(repoPath)) || {};
-                    const normalized = normalizeGitStatusPayload(statusPayload);
                     updateRepoOverviewFromStatus(repoPath, statusPayload);
-                    const stagedPaths = normalized.paths.staged
-                        .concat(
-                            normalized.paths.unstaged,
-                            normalized.paths.untracked
-                        );
-                    if (stagedPaths.length) {
-                        await service.gitStage(repoPath, stagedPaths);
-                        stagedSelections.push({ repoPath, files: stagedPaths });
+                    const selectedPaths = getPathsForCommitInRepo(repoPath);
+                    if (selectedPaths.length) {
+                        await service.gitStageExact(repoPath, selectedPaths);
+                        stagedSelections.push({ repoPath, files: selectedPaths });
                     }
                 }
 
@@ -442,32 +461,20 @@ export function createGitOpsActions(ctx) {
 
                 for (const selection of stagedSelections) {
                     const repoPath = selection.repoPath;
-                    const identityOk = await ensureGitIdentityOrPrompt(repoPath, { type: 'sync', mode: 'batch', repoPaths: selected });
-                    if (!identityOk) {
+                    const commitResult = await commitSelectionForRepo({
+                        repoPath,
+                        files: selection.files,
+                        message,
+                        pendingAction: { type: 'sync', mode: 'batch', repoPaths: selected },
+                        state
+                    });
+                    if (!commitResult?.ok) {
                         dispatchAutocommitStop();
                         return;
                     }
-                    const remembered = getRememberedGitIdentity();
-                    const userName = String(remembered.name || state.identityPrompt?.name || '').trim();
-                    const userEmail = String(remembered.email || state.identityPrompt?.email || '').trim();
-                    try {
-                        await service.gitCommit({
-                            path: repoPath,
-                            message,
-                            userName: userName || null,
-                            userEmail: userEmail || null
-                        });
-                    } catch (error) {
-                        const msg = normalizeErrorMessage(error);
-                        if (isGitIdentityError(msg)) {
-                            await ensureGitIdentityOrPrompt(repoPath, { type: 'sync', mode: 'batch', repoPaths: selected });
-                            dispatchAutocommitStop();
-                            return;
-                        }
-                        throw error;
-                    }
+                    if (!commitResult.committed) continue;
                     committedRepos += 1;
-                    committedFiles += Array.isArray(selection.files) ? selection.files.length : 0;
+                    committedFiles += commitResult.fileCount;
                 }
 
                 const auth = getAuthContext(getState(), tokenOverride);
