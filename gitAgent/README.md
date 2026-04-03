@@ -13,7 +13,7 @@ MCP agent for Git operations inside a Ploinky workspace.
 
 - repository inspection: `git_info`, `git_status`, `git_repos_overview`, `git_identity`
 - diff and ignore inspection: `git_diff`, `git_check_ignore`
-- staging workflow: `git_stage`, `git_unstage`, `git_untrack`, `git_restore`
+- staging workflow: `git_stage`, `git_stage_exact`, `git_unstage`, `git_untrack`, `git_restore`
 - conflict workflow: `git_conflict_versions`, `git_checkout_conflict`
 - remote workflow: `git_commit`, `git_push`, `git_pull`, `git_stash`, `git_stash_pop`
 - support tools: `git_diagnose`, `git_set_identity`, `git_commit_message`

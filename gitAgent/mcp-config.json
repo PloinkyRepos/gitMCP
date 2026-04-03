@@ -88,6 +88,29 @@
       }
     },
     {
+      "name": "git_stage_exact",
+      "title": "Git Stage Exact",
+      "description": "Reset the staged index to exactly the provided files in a repository.",
+      "command": "tools/git_tool.sh",
+      "cwd": "workspace",
+      "inputSchema": {
+        "path": {
+          "type": "string",
+          "optional": false
+        },
+        "files": {
+          "type": "array",
+          "optional": true,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "env": {
+        "TOOL_NAME": "git_stage_exact"
+      }
+    },
+    {
       "name": "git_unstage",
       "title": "Git Unstage",
       "description": "Unstage files in a repository.",
