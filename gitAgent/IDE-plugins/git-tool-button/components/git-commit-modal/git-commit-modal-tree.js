@@ -359,9 +359,13 @@ export function renderRepoChangesTree(repo, {
                 if (isUntracked) {
                     ignoreItem.setAttribute('data-local-action', 'openIgnoreForFile');
                     ignoreItem.textContent = 'Add to .gitignore';
+                    ignoreItem.title = 'Ignore this untracked file so Git will stop showing it in status and commits.';
+                    ignoreItem.setAttribute('aria-label', 'Ignore this untracked file so Git will stop showing it in status and commits.');
                 } else {
                     ignoreItem.setAttribute('data-local-action', 'openIgnoreForFile');
                     ignoreItem.textContent = 'Add to .gitignore (keep tracked)';
+                    ignoreItem.title = 'Keep this file versioned in the repository, but add an ignore rule so the rule also applies to future untracked copies.';
+                    ignoreItem.setAttribute('aria-label', 'Keep this file versioned in the repository, but add an ignore rule so the rule also applies to future untracked copies.');
                 }
                 menuList.appendChild(ignoreItem);
 
@@ -374,6 +378,8 @@ export function renderRepoChangesTree(repo, {
                     stopTrackingItem.dataset.filePath = file.path;
                     stopTrackingItem.setAttribute('data-local-action', 'openStopTrackingForFile');
                     stopTrackingItem.textContent = 'Stop tracking + add to .gitignore';
+                    stopTrackingItem.title = 'Remove this file from version control and add an ignore rule so future local edits stay out of Git.';
+                    stopTrackingItem.setAttribute('aria-label', 'Remove this file from version control and add an ignore rule so future local edits stay out of Git.');
                     menuList.appendChild(stopTrackingItem);
                 }
             } else {

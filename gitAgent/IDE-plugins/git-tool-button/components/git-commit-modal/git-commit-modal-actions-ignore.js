@@ -245,10 +245,18 @@ export function createIgnoreActions(ctx) {
                 let nextSelectedFiles = state.selectedFilesByRepo;
                 if (state.selectedFilesByRepo && state.selectedFilesByRepo[repoPath]) {
                     const entry = state.selectedFilesByRepo[repoPath];
-                    if (entry?.files && entry.files.size && ignoredPaths.length) {
+                    if (ignoredPaths.length) {
                         const nextFiles = new Set(entry.files);
-                        for (const path of ignoredPaths) {
-                            nextFiles.delete(path);
+                        const gitignoreRelativePath = '.gitignore';
+                        if (stopTracking) {
+                            for (const path of ignoredPaths) {
+                                nextFiles.add(path);
+                            }
+                            nextFiles.add(gitignoreRelativePath);
+                        } else {
+                            for (const path of ignoredPaths) {
+                                nextFiles.delete(path);
+                            }
                         }
                         const nextEntry = { ...entry, files: nextFiles };
                         if (!nextFiles.size && (!entry.prefixes || entry.prefixes.size === 0)) {
@@ -259,6 +267,17 @@ export function createIgnoreActions(ctx) {
                             nextSelectedFiles = { ...state.selectedFilesByRepo, [repoPath]: nextEntry };
                         }
                     }
+                } else if (stopTracking && ignoredPaths.length) {
+                    const gitignoreRelativePath = '.gitignore';
+                    nextSelectedFiles = {
+                        ...(state.selectedFilesByRepo || {}),
+                        [repoPath]: {
+                            files: new Set([...ignoredPaths, gitignoreRelativePath]),
+                            prefixes: new Set(),
+                            sectionsByFile: new Map(),
+                            excludedFiles: new Set()
+                        }
+                    };
                 }
                 applyState({
                     ignorePrompt: {

@@ -9,6 +9,12 @@ export function createRepoActions(ctx) {
 
     const toChangeRows = (status, limit = 800) => {
         const map = new Map();
+        const stopTrackingIgnoredPaths = new Set(
+            (Array.isArray(status?.staged) ? status.staged : [])
+                .filter((entry) => entry?.path && (entry.x === 'D' || entry.y === 'D'))
+                .map((entry) => entry.path)
+                .filter((pathValue) => (Array.isArray(status?.ignored) ? status.ignored : []).some((entry) => entry?.path === pathValue))
+        );
         const touch = (entry, flag) => {
             if (!entry) return;
             const pathValue = entry && typeof entry === 'object' ? entry.path : entry;
@@ -16,12 +22,13 @@ export function createRepoActions(ctx) {
             if (!key) return;
             const existing = map.get(key) || {
                 path: key,
-                flags: { staged: false, unstaged: false, untracked: false, conflicted: false, ignored: false },
+                flags: { staged: false, unstaged: false, untracked: false, conflicted: false, ignored: false, stopTrackingIgnored: false },
                 origPath: null,
                 x: ' ',
                 y: ' '
             };
             existing.flags[flag] = true;
+            existing.flags.stopTrackingIgnored = stopTrackingIgnoredPaths.has(key);
             if (entry?.origPath && !existing.origPath) existing.origPath = entry.origPath;
             if (typeof entry?.x === 'string' && entry.x.length) {
                 if (existing.x === ' ' || existing.x === '?' || entry.x !== ' ') {
@@ -46,7 +53,8 @@ export function createRepoActions(ctx) {
         const rows = Array.from(map.values());
         for (const row of rows) {
             const f = row.flags || {};
-            row.kind = f.conflicted ? 'conflicted'
+            row.kind = f.stopTrackingIgnored ? 'stop-tracking-ignored'
+                : f.conflicted ? 'conflicted'
                 : (f.ignored && !f.staged && !f.unstaged && !f.untracked) ? 'ignored'
                     : f.untracked ? 'untracked'
                     : (f.staged && f.unstaged) ? 'staged+unstaged'

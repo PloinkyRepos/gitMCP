@@ -428,6 +428,22 @@ export function createGitCommitRepo(ctx) {
         return rows.map((r) => (typeof r === 'string' ? r : String(r?.path || ''))).filter(Boolean);
     };
 
+    const isCommittableChangeRow = (row) => {
+        if (!row || typeof row === 'string') return true;
+        const flags = row.flags || {};
+        if (flags.ignored && !flags.staged && !flags.unstaged && !flags.untracked && !flags.conflicted) return false;
+        return Boolean(flags.staged || flags.unstaged || flags.untracked || flags.conflicted);
+    };
+
+    const getCommittablePathsForRepo = (repoPath) => {
+        const repo = (state.repoOverviews || []).find((r) => r?.path === repoPath) || null;
+        const rows = Array.isArray(repo?.changesAll) ? repo.changesAll : [];
+        return rows
+            .filter((row) => isCommittableChangeRow(row))
+            .map((row) => (typeof row === 'string' ? row : String(row?.path || '')))
+            .filter(Boolean);
+    };
+
     const reconcileSelectedDiffWithChanges = async () => {
         const filePath = state.selectedPath;
         if (!filePath) return false;
@@ -448,12 +464,12 @@ export function createGitCommitRepo(ctx) {
     };
 
     const getPathsForCommitInRepo = (repoPath) => {
-        const changed = getAllChangedPathsForRepo(repoPath);
+        const changed = getCommittablePathsForRepo(repoPath);
         const changedSet = new Set(changed);
         const entry = state.selectedFilesByRepo?.[repoPath] || null;
         const out = new Set();
         for (const file of entry?.files || []) {
-            out.add(file);
+            if (changedSet.has(file)) out.add(file);
         }
         const prefixes = Array.from(entry?.prefixes || []);
         for (const prefix of prefixes) {
@@ -498,6 +514,7 @@ export function createGitCommitRepo(ctx) {
         togglePrefixSelection,
         toggleMultipleReposAllChanges,
         getAllChangedPathsForRepo,
+        getCommittablePathsForRepo,
         reconcileSelectedDiffWithChanges,
         getPathsForCommitInRepo
     };
