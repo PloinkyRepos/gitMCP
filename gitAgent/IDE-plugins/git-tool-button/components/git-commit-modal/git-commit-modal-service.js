@@ -30,6 +30,7 @@ export function createGitCommitService({ callTool, callAgentTool }) {
         gitPull: (payload) => callAgentTool('gitAgent', 'git_pull', payload),
         gitSetIdentity: (payload) => callAgentTool('gitAgent', 'git_set_identity', payload),
         gitStage: (path, files) => callAgentTool('gitAgent', 'git_stage', { path, files }),
+        gitStageExact: (path, files) => callAgentTool('gitAgent', 'git_stage_exact', { path, files }),
         gitUntrack: (path, files) => callAgentTool('gitAgent', 'git_untrack', { path, files }),
         gitCheckIgnore: (path, files) => callAgentTool('gitAgent', 'git_check_ignore', { path, files }),
         gitRestore: (path, files) => callAgentTool('gitAgent', 'git_restore', { path, files }),

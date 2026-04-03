@@ -299,7 +299,7 @@ export function createGitOpsActions(ctx) {
                     if (!identityOk) return;
                     const list = getPathsForCommitInRepo(repoPath);
                     if (!list.length) continue;
-                    await service.gitStage(repoPath, list);
+                    await service.gitStageExact(repoPath, list);
                     const after = parseJsonToolResult(await service.gitStatus(repoPath));
                     const afterStatus = after?.status || after || {};
                     if (!(afterStatus.staged || []).length) {

@@ -129,6 +129,7 @@ function normalizeArgs(toolName, args) {
       input.ref = input.ref ?? null;
       return input;
     case 'git_stage':
+    case 'git_stage_exact':
     case 'git_unstage':
     case 'git_untrack':
     case 'git_check_ignore':
@@ -292,6 +293,10 @@ async function main() {
         return;
       case 'git_stage':
         result = await gitService.gitStage(payload);
+        writeJson(result);
+        return;
+      case 'git_stage_exact':
+        result = await gitService.gitStageExact(payload);
         writeJson(result);
         return;
       case 'git_unstage':

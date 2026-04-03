@@ -497,6 +497,27 @@ export function createGitService({ validatePath }) {
     return { ok: true };
   }
 
+  async function gitStageExact({ path: repoPathArg, files = [] }) {
+    const repoPath = await resolveRepoPath(repoPathArg);
+    const gitBinary = await getGitBinary(repoPath);
+    const list = Array.isArray(files) ? files : [];
+    for (const file of list) {
+      if (!isGitRepoRelativePath(file)) throw new Error(`Invalid file path for git_stage_exact: ${file}`);
+    }
+
+    try {
+      await runGit(repoPath, [gitBinary, 'restore', '--staged', '--', '.']);
+    } catch {
+      await runGit(repoPath, [gitBinary, 'reset', '-q', 'HEAD', '--', '.']);
+    }
+
+    if (!list.length) {
+      return { ok: true };
+    }
+
+    return gitStage({ path: repoPath, files: list });
+  }
+
   async function gitUnstage({ path: repoPathArg, files = [] }) {
     const repoPath = await resolveRepoPath(repoPathArg);
     const gitBinary = await getGitBinary(repoPath);
@@ -1302,6 +1323,7 @@ export function createGitService({ validatePath }) {
     gitStatus,
     gitDiff,
     gitStage,
+    gitStageExact,
     gitUnstage,
     gitUntrack,
     gitCheckIgnore,
