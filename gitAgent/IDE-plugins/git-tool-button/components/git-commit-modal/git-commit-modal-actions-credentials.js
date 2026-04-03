@@ -14,8 +14,7 @@ import {
     setRememberedGitAuthMethod,
     setAutocommitSettings,
     getConflictAutoresolveSetting,
-    setConflictAutoresolveSetting,
-    setCredentialsValidated
+    setConflictAutoresolveSetting
 } from "./git-commit-modal-utils.js";
 import { getRepoScanPaths } from "/explorer/utils/reposRoot.js";
 import { AUTOCOMMIT_SETTINGS_CHANGED_EVENT } from "/explorer/utils/appEvents.js";
@@ -300,219 +299,237 @@ export function createCredentialsActions(ctx) {
         }
     };
 
-    const saveGitCredentials = async (payload = {}) => {
-        const state = getState();
-        const name = String(payload.name ?? state.identityPrompt?.name ?? '').trim();
-        const email = String(payload.email ?? state.identityPrompt?.email ?? '').trim();
+    const collectCredentialsDraft = (state, payload = {}) => {
         const authMethod = normalizeGitAuthMethod(payload.authMethod ?? getAuthMethod(state));
-        const token = String(payload.token ?? state.authPrompt?.token ?? '').trim();
-        const validateOnly = Boolean(payload.validateOnly);
-        const autocommitIntervalMinutes = payload.autocommitIntervalMinutes;
-        const autocommitRepos = Array.isArray(payload.autocommitRepos) ? payload.autocommitRepos : null;
-        const autoresolveConflicts = typeof payload.autoresolveConflicts === 'boolean'
-            ? payload.autoresolveConflicts
-            : getConflictAutoresolveSetting();
-        const tokenStored = Boolean(state.githubAuth?.tokenStored);
-        const githubConnected = Boolean(state.githubAuth?.connected && state.githubAuth?.connection?.source === 'github');
-        const githubConfigured = Boolean(state.githubAuth?.configured || githubConnected);
+        return {
+            name: String(payload.name ?? state.identityPrompt?.name ?? '').trim(),
+            email: String(payload.email ?? state.identityPrompt?.email ?? '').trim(),
+            authMethod,
+            token: String(payload.token ?? state.authPrompt?.token ?? '').trim(),
+            usingGithub: authMethod === 'github',
+            validateOnly: Boolean(payload.validateOnly),
+            autocommitIntervalMinutes: payload.autocommitIntervalMinutes,
+            autocommitRepos: Array.isArray(payload.autocommitRepos) ? payload.autocommitRepos : null,
+            autoresolveConflicts: typeof payload.autoresolveConflicts === 'boolean'
+                ? payload.autoresolveConflicts
+                : getConflictAutoresolveSetting()
+        };
+    };
+
+    const getCredentialsBaselineState = (state, draft) => {
         const rememberedIdentity = getRememberedGitIdentity();
         const rememberedAuthMethod = normalizeGitAuthMethod(getRememberedGitAuthMethod());
         const credentialsBaseline = state.credentialsBaseline || null;
-        const usingGithub = authMethod === 'github';
-        const storedGithubToken = tokenStored ? '__stored__' : '';
         const baselineName = String(credentialsBaseline?.name ?? rememberedIdentity.name ?? '').trim();
         const baselineEmail = String(credentialsBaseline?.email ?? rememberedIdentity.email ?? '').trim();
-        const baselineAuthMethod = normalizeGitAuthMethod(credentialsBaseline?.authMethod ?? getDisplayedAuthMethod(state) ?? rememberedAuthMethod);
-        const hasIdentityChange = name !== baselineName
-            || email !== baselineEmail;
-        const hasAuthMethodChange = authMethod !== baselineAuthMethod;
-        const hasTokenChange = usingGithub
-            ? false
-            : Boolean(token);
-        const hasPersistableChanges = hasIdentityChange || hasAuthMethodChange || hasTokenChange;
+        const baselineAuthMethod = normalizeGitAuthMethod(
+            credentialsBaseline?.authMethod ?? getDisplayedAuthMethod(state) ?? rememberedAuthMethod
+        );
+        const hasIdentityChange = draft.name !== baselineName || draft.email !== baselineEmail;
+        const hasAuthMethodChange = draft.authMethod !== baselineAuthMethod;
+        const hasTokenChange = draft.usingGithub ? false : Boolean(draft.token);
+        return {
+            hasPersistableChanges: hasIdentityChange || hasAuthMethodChange || hasTokenChange
+        };
+    };
 
-        if (
-            !state.credentialsDirty
-            && !state.autocommitDirty
-            && !state.autoresolveDirty
-            && !state.credentialsGate
-            && !state.pendingAction
-            && !hasPersistableChanges
-        ) {
-            applyState({
-                identityPrompt: { visible: false, repoPath: null, pendingAction: null, name: '', email: '' },
-                authPrompt: {
-                    visible: false,
-                    repoPath: null,
-                    pendingAction: null,
-                    token: '',
-                    authMethod
-                },
-                credentialsOpen: false
-            });
-            updateCommitButtons();
-            setStatusLine('');
-            return true;
-        }
-
+    const getCredentialsRuntimeState = (state, draft) => {
+        const tokenStored = Boolean(state.githubAuth?.tokenStored);
+        const githubConnected = Boolean(
+            state.githubAuth?.connected
+            && state.githubAuth?.connection?.source === 'github'
+        );
+        const githubConfigured = Boolean(state.githubAuth?.configured || githubConnected);
+        const pending = state.pendingAction || state.authPrompt?.pendingAction || state.identityPrompt?.pendingAction;
         const identityRequired = Boolean(state.credentialsGate || state.identityPrompt?.visible);
         const authRequired = Boolean(state.authPrompt?.visible);
         const emailPattern = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-        const identityValid = Boolean(name && email && emailPattern.test(email));
-        const effectiveToken = usingGithub ? null : (token || null);
-        const authValid = usingGithub
+        const identityValid = Boolean(draft.name && draft.email && emailPattern.test(draft.email));
+        const effectiveToken = draft.usingGithub ? null : (draft.token || null);
+        const authValid = draft.usingGithub
             ? Boolean(githubConnected || effectiveToken)
             : Boolean(effectiveToken || tokenStored);
-        setRememberedGitAuthMethod(authMethod);
+        const canSaveGithubSetup = draft.usingGithub
+            && githubConfigured
+            && !githubConnected
+            && !pending?.type
+            && !draft.validateOnly;
+        return {
+            githubConnected,
+            githubConfigured,
+            pending,
+            identityRequired,
+            authRequired,
+            identityValid,
+            effectiveToken,
+            authValid,
+            canSaveGithubSetup
+        };
+    };
 
+    const applyCredentialsDraft = (state, draft) => {
+        setRememberedGitAuthMethod(draft.authMethod);
         applyState({
             identityPrompt: {
                 ...state.identityPrompt,
-                name,
-                email
+                name: draft.name,
+                email: draft.email
             },
             authPrompt: {
                 ...state.authPrompt,
-                token,
-                authMethod
+                token: draft.token,
+                authMethod: draft.authMethod
             }
         }, { silent: true });
+    };
 
-        if (!identityValid) {
-            applyState({
-                identityPrompt: {
-                    ...state.identityPrompt,
-                    visible: true,
-                    name,
-                    email
-                }
-            });
-            updateIdentityPrompt({ focus: !name ? 'name' : 'email' });
-            updateCommitButtons();
-            setStatusLine(!name || !email ? 'Enter name and email.' : 'Enter a valid email address.', true);
+    const closeCredentialsWithoutChanges = (draft) => {
+        applyState({
+            identityPrompt: { visible: false, repoPath: null, pendingAction: null, name: '', email: '' },
+            authPrompt: {
+                visible: false,
+                repoPath: null,
+                pendingAction: null,
+                token: '',
+                authMethod: draft.authMethod
+            },
+            credentialsOpen: false
+        });
+        updateCommitButtons();
+        setStatusLine('');
+        return true;
+    };
+
+    const ensureIdentityIsValid = (state, draft, runtimeState) => {
+        if (runtimeState.identityValid) {
+            return true;
+        }
+        applyState({
+            identityPrompt: {
+                ...state.identityPrompt,
+                visible: true,
+                name: draft.name,
+                email: draft.email
+            }
+        });
+        updateIdentityPrompt({ focus: !draft.name ? 'name' : 'email' });
+        updateCommitButtons();
+        setStatusLine(!draft.name || !draft.email ? 'Enter name and email.' : 'Enter a valid email address.', true);
+        return false;
+    };
+
+    const ensureAuthIsReady = (state, draft, runtimeState) => {
+        if (runtimeState.authValid || runtimeState.canSaveGithubSetup) {
+            return true;
+        }
+        applyState({
+            authPrompt: {
+                ...state.authPrompt,
+                visible: true,
+                token: '',
+                authMethod: draft.authMethod
+            }
+        });
+        updateAuthPrompt(draft.authMethod === 'token' ? { focus: 'token' } : {});
+        updateCommitButtons();
+        setStatusLine(
+            draft.authMethod === 'github'
+                ? (state.githubAuth?.configured ? 'Connect GitHub to continue.' : 'GitHub sign-in is not available in this workspace.')
+                : 'Enter a token to continue.',
+            true
+        );
+        return false;
+    };
+
+    const persistSettingsOnly = (draft) => {
+        setAutocommitSettings({ intervalMinutes: draft.autocommitIntervalMinutes, repos: draft.autocommitRepos });
+        setConflictAutoresolveSetting(draft.autoresolveConflicts);
+        try {
+            window.dispatchEvent(new CustomEvent(AUTOCOMMIT_SETTINGS_CHANGED_EVENT));
+        } catch {
+            // ignore dispatch errors
+        }
+        applyState({
+            autocommitDirty: false,
+            autocommitDraft: {
+                intervalMinutes: draft.autocommitIntervalMinutes,
+                repos: draft.autocommitRepos
+            },
+            autoresolveDirty: false,
+            autoresolveDraft: { enabled: draft.autoresolveConflicts }
+        });
+        updateCommitButtons();
+        setStatusLine('Settings saved.');
+        return true;
+    };
+
+    const validateCredentialsForSave = async (state, draft, runtimeState) => {
+        let validationRepoPath = state.identityPrompt?.repoPath || state.authPrompt?.repoPath;
+        if (!validationRepoPath) {
+            validationRepoPath = await resolveIdentityRepoPath();
+        }
+        if (!validationRepoPath) {
+            validationRepoPath = state.reposRoot || state.repoPath || '';
+        }
+        if (!validationRepoPath) {
+            setStatusLine('Select a repository to validate credentials.', true);
             return false;
         }
-        const pending = state.pendingAction || state.authPrompt?.pendingAction || state.identityPrompt?.pendingAction;
-        const canSaveGithubSetup = usingGithub && githubConfigured && !githubConnected && !pending?.type && !validateOnly;
-
-        if (!authValid && !canSaveGithubSetup) {
-            applyState({
-                authPrompt: {
-                    ...state.authPrompt,
-                    visible: true,
-                    token: '',
-                    authMethod
-                }
-            });
-            updateAuthPrompt(authMethod === 'token' ? { focus: 'token' } : {});
-            updateCommitButtons();
+        if (!runtimeState.authValid) {
             setStatusLine(
-                authMethod === 'github'
-                    ? (state.githubAuth?.configured ? 'Connect GitHub to continue.' : 'GitHub sign-in is not available in this workspace.')
-                    : 'Enter a token to continue.',
+                draft.authMethod === 'github'
+                    ? (state.githubAuth?.configured ? 'Connect GitHub to validate credentials.' : 'GitHub sign-in is not available in this workspace.')
+                    : 'Enter a token to validate credentials.',
                 true
             );
             return false;
         }
-
-        if (!state.credentialsValidated && !state.credentialsDirty && (state.autocommitDirty || state.autoresolveDirty) && !validateOnly) {
-            setAutocommitSettings({ intervalMinutes: autocommitIntervalMinutes, repos: autocommitRepos });
-            setConflictAutoresolveSetting(autoresolveConflicts);
-            try {
-                window.dispatchEvent(new CustomEvent(AUTOCOMMIT_SETTINGS_CHANGED_EVENT));
-            } catch {
-                // ignore dispatch errors
-            }
-            applyState({
-                autocommitDirty: false,
-                autocommitDraft: {
-                    intervalMinutes: autocommitIntervalMinutes,
-                    repos: autocommitRepos
-                },
-                autoresolveDirty: false,
-                autoresolveDraft: { enabled: autoresolveConflicts }
+        setStatusLine('Validating credentials...');
+        try {
+            await service.gitPull({
+                path: validationRepoPath,
+                rebase: false,
+                ffOnly: false,
+                token: runtimeState.effectiveToken || null
             });
-            updateCommitButtons();
-            setStatusLine('Settings saved.');
-            return true;
-        }
-
-        if (!state.credentialsValidated && pending?.type && identityValid && authValid && !validateOnly) {
-            applyState({ credentialsValidated: true });
-            setCredentialsValidated(true);
-        } else if (!state.credentialsValidated && !authValid && !validateOnly) {
-            setCredentialsValidated(false);
-        } else if (!state.credentialsValidated) {
-            let validationRepoPath = state.identityPrompt?.repoPath || state.authPrompt?.repoPath;
-            if (!validationRepoPath) {
-                validationRepoPath = await resolveIdentityRepoPath();
-            }
-            if (!validationRepoPath) {
-                validationRepoPath = state.reposRoot || state.repoPath || '';
-            }
-            if (!validationRepoPath) {
-                setStatusLine('Select a repository to validate credentials.', true);
-                return false;
-            }
-            if (!authValid) {
+        } catch (error) {
+            const msg = normalizeErrorMessage(error);
+            const lower = msg.toLowerCase();
+            if (isGitAuthError(msg) || lower.includes('repository not found')) {
                 setStatusLine(
-                    authMethod === 'github'
-                        ? (state.githubAuth?.configured ? 'Connect GitHub to validate credentials.' : 'GitHub sign-in is not available in this workspace.')
-                        : 'Enter a token to validate credentials.',
+                    draft.usingGithub
+                        ? 'GitHub validation failed. Reconnect GitHub or use a token.'
+                        : 'Token validation failed. Check your token and repo access.',
                     true
                 );
                 return false;
             }
-            setStatusLine('Validating credentials...');
-            try {
-                await service.gitPull({
-                    path: validationRepoPath,
-                    rebase: false,
-                    ffOnly: false,
-                    token: effectiveToken || null
-                });
-            } catch (error) {
-                const msg = normalizeErrorMessage(error);
-                const lower = msg.toLowerCase();
-                if (isGitAuthError(msg) || lower.includes('repository not found')) {
-                    setStatusLine(
-                        usingGithub
-                            ? 'GitHub validation failed. Reconnect GitHub or use a token.'
-                            : 'Token validation failed. Check your token and repo access.',
-                        true
-                    );
-                    return false;
-                }
-                if (lower.includes('remote is not https')) {
-                    setStatusLine(msg, true);
-                    return false;
-                }
-                if (isGitIdentityError(msg)) {
-                    setStatusLine('Author identity is not valid for git. Update name/email and retry.', true);
-                    return false;
-                }
-                if (!isGitPullBlockedError(msg) && !isGitConflictError(msg)) {
-                    setStatusLine(msg || 'Unable to validate credentials.', true);
-                    return false;
-                }
+            if (lower.includes('remote is not https')) {
+                setStatusLine(msg, true);
+                return false;
             }
-            applyState({ credentialsValidated: true });
-            setCredentialsValidated(true);
-            updateCommitButtons();
-            setStatusLine('Credentials validated. Select autocommit repositories and save.');
-            await refreshAll({ force: true });
-            updateIdentityPrompt();
-            return false;
+            if (isGitIdentityError(msg)) {
+                setStatusLine('Author identity is not valid for git. Update name/email and retry.', true);
+                return false;
+            }
+            if (!isGitPullBlockedError(msg) && !isGitConflictError(msg)) {
+                setStatusLine(msg || 'Unable to validate credentials.', true);
+                return false;
+            }
         }
-        if (validateOnly) {
-            setStatusLine('Credentials already validated.');
-            return false;
-        }
+        applyState({ credentialsValidated: true });
+        updateCommitButtons();
+        setStatusLine('Credentials validated. Select autocommit repositories and save.');
+        await refreshAll({ force: true });
+        updateIdentityPrompt();
+        return false;
+    };
 
+    const persistCredentialsDraft = async (state, draft, runtimeState) => {
         let identitySaved = false;
         let tokenSaved = false;
         let repoPath = state.identityPrompt?.repoPath;
-        if (identityValid && (identityRequired || identityValid)) {
+        if (runtimeState.identityValid && (runtimeState.identityRequired || runtimeState.identityValid)) {
             if (!repoPath) {
                 repoPath = await resolveIdentityRepoPath();
             }
@@ -522,25 +539,25 @@ export function createCredentialsActions(ctx) {
             if (!repoPath) {
                 if (state.credentialsGate) {
                     setStatusLine('Select a repository to set identity.', true);
-                    return false;
+                    return null;
                 }
             } else {
-                setRememberedGitIdentity({ name, email });
+                setRememberedGitIdentity({ name: draft.name, email: draft.email });
                 identitySaved = true;
             }
         }
 
-        if (!usingGithub && authValid && (authRequired || authValid)) {
-            if (effectiveToken) {
-                await service.storeManualGitToken(effectiveToken);
+        if (!draft.usingGithub && runtimeState.authValid && (runtimeState.authRequired || runtimeState.authValid)) {
+            if (runtimeState.effectiveToken) {
+                await service.storeManualGitToken(runtimeState.effectiveToken);
             }
             tokenSaved = true;
-        } else if (usingGithub && authValid) {
+        } else if (draft.usingGithub && runtimeState.authValid) {
             tokenSaved = true;
         }
 
-        setAutocommitSettings({ intervalMinutes: autocommitIntervalMinutes, repos: autocommitRepos });
-        setConflictAutoresolveSetting(autoresolveConflicts);
+        setAutocommitSettings({ intervalMinutes: draft.autocommitIntervalMinutes, repos: draft.autocommitRepos });
+        setConflictAutoresolveSetting(draft.autoresolveConflicts);
         try {
             window.dispatchEvent(new CustomEvent(AUTOCOMMIT_SETTINGS_CHANGED_EVENT));
         } catch {
@@ -549,86 +566,161 @@ export function createCredentialsActions(ctx) {
         applyState({
             autocommitDirty: false,
             autocommitDraft: {
-                intervalMinutes: autocommitIntervalMinutes,
-                repos: autocommitRepos
+                intervalMinutes: draft.autocommitIntervalMinutes,
+                repos: draft.autocommitRepos
             },
             autoresolveDirty: false,
-            autoresolveDraft: { enabled: autoresolveConflicts },
+            autoresolveDraft: { enabled: draft.autoresolveConflicts },
             credentialsDirty: false
         }, { silent: true });
+        return { identitySaved, tokenSaved };
+    };
 
+    const finalizeCredentialsSave = (state, draft, runtimeState, persisted) => {
         const wasGate = state.credentialsGate;
-
         applyState({
-            identityPrompt: identitySaved
+            identityPrompt: persisted.identitySaved
                 ? { visible: false, repoPath: null, pendingAction: null, name: '', email: '' }
                 : state.identityPrompt,
-            authPrompt: (tokenSaved || authRequired)
+            authPrompt: (persisted.tokenSaved || runtimeState.authRequired)
                 ? {
                     visible: false,
                     repoPath: null,
                     pendingAction: null,
                     token: '',
-                    authMethod
+                    authMethod: draft.authMethod
                 }
                 : state.authPrompt,
-            credentialsGate: identitySaved && state.credentialsGate ? false : state.credentialsGate,
+            credentialsGate: persisted.identitySaved && state.credentialsGate ? false : state.credentialsGate,
             credentialsOpen: state.credentialsOpen && !state.credentialsGate ? false : state.credentialsOpen
         });
         updateCommitButtons();
+        return { wasGate };
+    };
 
-        if (pending?.type) {
-            if (pending.type === 'pull') {
-                setStatusLine('Retrying pull…');
-            } else if (pending.type === 'push') {
-                setStatusLine('Retrying push…');
+    const resumePendingGitAction = async (pending, effectiveToken) => {
+        if (!pending?.type) return false;
+        if (pending.type === 'pull') {
+            setStatusLine('Retrying pull…');
+        } else if (pending.type === 'push') {
+            setStatusLine('Retrying push…');
+        } else if (pending.type === 'sync') {
+            setStatusLine('Retrying sync…');
+        } else if (pending.type === 'commit') {
+            setStatusLine('Retrying commit…');
+        }
+        try {
+            if (pending.type === 'commit') {
+                await commitSelectedRepos();
             } else if (pending.type === 'sync') {
-                setStatusLine('Retrying sync…');
-            } else if (pending.type === 'commit') {
-                setStatusLine('Retrying commit…');
-            }
-            try {
-                if (pending.type === 'commit') {
-                    await commitSelectedRepos();
-                } else if (pending.type === 'sync') {
-                    const list = Array.isArray(pending.repoPaths) ? pending.repoPaths : null;
-                    await syncSelectedRepos?.({ token: effectiveToken || null, repoPaths: list });
-                } else if (pending.type === 'push') {
-                    if (pending.mode === 'batch') {
-                        const list = Array.isArray(pending.repoPaths) ? pending.repoPaths : [];
-                        await pushRepos(list, { token: effectiveToken || null });
-                    } else {
-                        await push({ silent: false, token: effectiveToken || null });
-                    }
-                } else if (pending.type === 'pull') {
-                    if (pending.mode === 'batch') {
-                        const list = Array.isArray(pending.repoPaths) ? pending.repoPaths : [];
-                        await pullRepos(list, { token: effectiveToken || null });
-                    } else {
-                        await pullSelectedRepos();
-                    }
+                const list = Array.isArray(pending.repoPaths) ? pending.repoPaths : null;
+                await syncSelectedRepos?.({ token: effectiveToken || null, repoPaths: list });
+            } else if (pending.type === 'push') {
+                if (pending.mode === 'batch') {
+                    const list = Array.isArray(pending.repoPaths) ? pending.repoPaths : [];
+                    await pushRepos(list, { token: effectiveToken || null });
+                } else {
+                    await push({ silent: false, token: effectiveToken || null });
                 }
-            } catch (error) {
-                setStatusLine(normalizeErrorMessage(error), true);
+            } else if (pending.type === 'pull') {
+                if (pending.mode === 'batch') {
+                    const list = Array.isArray(pending.repoPaths) ? pending.repoPaths : [];
+                    await pullRepos(list, { token: effectiveToken || null });
+                } else {
+                    await pullSelectedRepos();
+                }
+            }
+        } catch (error) {
+            setStatusLine(normalizeErrorMessage(error), true);
+        }
+        return true;
+    };
+
+    const applySavedStatus = (draft, runtimeState, persisted) => {
+        if (persisted.identitySaved && persisted.tokenSaved) {
+            setStatusLine('Credentials saved.');
+        } else if (persisted.identitySaved && draft.usingGithub) {
+            setStatusLine(runtimeState.githubConnected ? 'Identity saved. GitHub is ready.' : 'Identity saved. Finish GitHub sign-in when you need Git operations.');
+        } else if (persisted.identitySaved) {
+            setStatusLine('Identity saved.');
+        } else if (persisted.tokenSaved) {
+            setStatusLine('Token saved.');
+        } else if (draft.usingGithub && runtimeState.githubConnected) {
+            setStatusLine('GitHub authentication ready.');
+        } else if (draft.usingGithub && runtimeState.githubConfigured) {
+            setStatusLine('Saved. Finish GitHub sign-in when you need Git operations.');
+        }
+    };
+
+    const saveGitCredentials = async (payload = {}) => {
+        const state = getState();
+        const draft = collectCredentialsDraft(state, payload);
+        const baselineState = getCredentialsBaselineState(state, draft);
+        const runtimeState = getCredentialsRuntimeState(state, draft);
+
+        if (
+            !state.credentialsDirty
+            && !state.autocommitDirty
+            && !state.autoresolveDirty
+            && !state.credentialsGate
+            && !state.pendingAction
+            && !baselineState.hasPersistableChanges
+        ) {
+            return closeCredentialsWithoutChanges(draft);
+        }
+
+        applyCredentialsDraft(state, draft);
+
+        if (!ensureIdentityIsValid(state, draft, runtimeState)) {
+            return false;
+        }
+
+        if (!ensureAuthIsReady(state, draft, runtimeState)) {
+            return false;
+        }
+
+        if (!state.credentialsValidated && !state.credentialsDirty && (state.autocommitDirty || state.autoresolveDirty) && !draft.validateOnly) {
+            return persistSettingsOnly(draft);
+        }
+
+        if (!runtimeState.pending?.type && !draft.validateOnly) {
+            const persisted = await persistCredentialsDraft(state, draft, runtimeState);
+            if (!persisted) {
+                return false;
+            }
+            const finalizeState = finalizeCredentialsSave(state, draft, runtimeState, persisted);
+            applySavedStatus(draft, runtimeState, persisted);
+            if (finalizeState.wasGate && persisted.identitySaved) {
+                await refreshAll({ force: true });
             }
             return true;
         }
 
-        if (identitySaved && tokenSaved) {
-            setStatusLine('Credentials saved.');
-        } else if (identitySaved && usingGithub) {
-            setStatusLine(githubConnected ? 'Identity saved. GitHub is ready.' : 'Identity saved. Finish GitHub sign-in when you need Git operations.');
-        } else if (identitySaved) {
-            setStatusLine('Identity saved.');
-        } else if (tokenSaved) {
-            setStatusLine('Token saved.');
-        } else if (usingGithub && githubConnected) {
-            setStatusLine('GitHub authentication ready.');
-        } else if (usingGithub && githubConfigured) {
-            setStatusLine('Saved. Finish GitHub sign-in when you need Git operations.');
+        if (!state.credentialsValidated && runtimeState.pending?.type && runtimeState.identityValid && runtimeState.authValid && !draft.validateOnly) {
+            applyState({ credentialsValidated: true });
+        } else if (!state.credentialsValidated && !runtimeState.authValid && !draft.validateOnly && !runtimeState.canSaveGithubSetup) {
+            applyState({ credentialsValidated: false }, { silent: true });
+        } else if (!state.credentialsValidated && !runtimeState.canSaveGithubSetup) {
+            return validateCredentialsForSave(state, draft, runtimeState);
+        }
+        if (draft.validateOnly) {
+            setStatusLine('Credentials already validated.');
+            return false;
         }
 
-        if (wasGate && identitySaved) {
+        const persisted = await persistCredentialsDraft(state, draft, runtimeState);
+        if (!persisted) {
+            return false;
+        }
+        const finalizeState = finalizeCredentialsSave(state, draft, runtimeState, persisted);
+
+        if (await resumePendingGitAction(runtimeState.pending, runtimeState.effectiveToken)) {
+            return true;
+        }
+
+        applySavedStatus(draft, runtimeState, persisted);
+
+        if (finalizeState.wasGate && persisted.identitySaved) {
             await refreshAll({ force: true });
         }
         return true;

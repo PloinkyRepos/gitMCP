@@ -108,7 +108,6 @@ export function createGitCommitUI(ctx) {
         const autocommitDraft = state.autocommitDraft || {};
         const autoresolveDraft = state.autoresolveDraft || {};
         const repoOverviews = Array.isArray(state.repoOverviews) ? state.repoOverviews : [];
-        const credentialsValidated = Boolean(state.credentialsValidated);
         const autocommitRepos = repoOverviews
             .map((repo) => ({
                 path: repo?.path || '',
@@ -169,7 +168,6 @@ export function createGitCommitUI(ctx) {
             authMethod,
             token: tokenValue,
             authRequired: Boolean(authState.visible),
-            credentialsValidated,
             credentialsDirty: Boolean(state.credentialsDirty),
             autocommitDirty: Boolean(state.autocommitDirty),
             autoresolveDirty: Boolean(state.autoresolveDirty),

@@ -20,8 +20,7 @@ import {
     setRememberedGithubConnection,
     clearRememberedGithubConnection,
     normalizeGitAuthMethod,
-    setGitErrorFlag,
-    setCredentialsValidated
+    setGitErrorFlag
 } from "./git-commit-modal-utils.js";
 import { FILE_EXP_REFRESH_EVENT } from "/explorer/utils/appEvents.js";
 import { GIT_MODAL_CLOSED_EVENT } from "../../git-tool-button-events.js";
@@ -209,7 +208,6 @@ export class GitCommitModal {
             );
             if (credentialsChanged) {
                 patch.credentialsValidated = false;
-                setCredentialsValidated(false);
                 patch.credentialsDirty = true;
             }
         }
@@ -542,7 +540,6 @@ export class GitCommitModal {
             const github = payload?.github || {};
             if (github?.connected && github?.connection) {
                 setRememberedGithubConnection(github.connection);
-                setCredentialsValidated(false);
             }
             this.updateGithubAuthState(github, { silent });
             const pending = github.pending || null;
@@ -584,7 +581,6 @@ export class GitCommitModal {
     async disconnectGithubAuth() {
         const payload = await this.service.disconnectGithubAuth();
         this.clearGithubPollTimer();
-        setCredentialsValidated(false);
         clearRememberedGithubConnection();
         this.updateGithubAuthState(payload?.github || {});
         this.updateAuthPrompt();

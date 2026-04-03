@@ -1,7 +1,6 @@
 import { createStore } from "/explorer/services/ui/store.js";
 import {
     getRememberedGitIdentity,
-    getCredentialsValidated,
     getRememberedGitAuthMethod,
     getRememberedGithubConnection
 } from "./git-commit-modal-utils.js";
@@ -37,7 +36,7 @@ export function createGitCommitState(props = {}) {
         pullMode: 'merge', // 'ffOnly' | 'rebase' | 'merge'
         credentialsOpen: false,
         credentialsGate: false,
-        credentialsValidated: getCredentialsValidated(),
+        credentialsValidated: false,
         credentialsDirty: false,
         credentialsBaseline: null,
         autocommitDirty: false,
