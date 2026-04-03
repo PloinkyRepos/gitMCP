@@ -505,6 +505,12 @@ export function createGitService({ validatePath }) {
       if (!isGitRepoRelativePath(file)) throw new Error(`Invalid file path for git_stage_exact: ${file}`);
     }
 
+    const statusPayload = list.length ? await gitStatus({ path: repoPath }) : null;
+    const status = statusPayload?.status || statusPayload || {};
+    const stopTrackingIgnoredSet = new Set(getStopTrackingIgnoredPaths(status));
+    const stopTrackingIgnored = list.filter((file) => stopTrackingIgnoredSet.has(file));
+    const normalFiles = list.filter((file) => !stopTrackingIgnoredSet.has(file));
+
     try {
       await runGit(repoPath, [gitBinary, 'restore', '--staged', '--', '.']);
     } catch {
@@ -515,7 +521,13 @@ export function createGitService({ validatePath }) {
       return { ok: true };
     }
 
-    return gitStage({ path: repoPath, files: list });
+    if (normalFiles.length) {
+      await gitStage({ path: repoPath, files: normalFiles });
+    }
+    if (stopTrackingIgnored.length) {
+      await gitUntrack({ path: repoPath, files: stopTrackingIgnored });
+    }
+    return { ok: true };
   }
 
   async function gitUnstage({ path: repoPathArg, files = [] }) {
@@ -1221,17 +1233,19 @@ export function createGitService({ validatePath }) {
           const toPaths = (items, limit = 250) => items.slice(0, limit).map((e) => e?.path).filter(Boolean);
           const toChangeRows = (status, limit = 800) => {
             const map = new Map();
+            const stopTrackingIgnoredPaths = new Set(getStopTrackingIgnoredPaths(status));
             const touch = (entry, flag) => {
               if (!entry?.path) return;
               const key = entry.path;
               const existing = map.get(key) || {
                 path: key,
-                flags: { staged: false, unstaged: false, untracked: false, conflicted: false, ignored: false },
+                flags: { staged: false, unstaged: false, untracked: false, conflicted: false, ignored: false, stopTrackingIgnored: false },
                 origPath: null,
                 x: ' ',
                 y: ' '
               };
               existing.flags[flag] = true;
+              existing.flags.stopTrackingIgnored = stopTrackingIgnoredPaths.has(key);
               if (entry.origPath && !existing.origPath) existing.origPath = entry.origPath;
               if (typeof entry.x === 'string' && entry.x.length) {
                 if (existing.x === ' ' || existing.x === '?' || entry.x !== ' ') {
@@ -1255,7 +1269,8 @@ export function createGitService({ validatePath }) {
             const rows = Array.from(map.values());
             for (const row of rows) {
               const f = row.flags || {};
-              row.kind = f.conflicted ? 'conflicted'
+              row.kind = f.stopTrackingIgnored ? 'stop-tracking-ignored'
+                : f.conflicted ? 'conflicted'
                 : (f.ignored && !f.staged && !f.unstaged && !f.untracked) ? 'ignored'
                   : f.untracked ? 'untracked'
                   : (f.staged && f.unstaged) ? 'staged+unstaged'
